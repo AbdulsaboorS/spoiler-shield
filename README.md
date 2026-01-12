@@ -71,3 +71,36 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Dev: Side Panel Extension
+
+This repo includes a Chrome Extension (Manifest V3) in `/extension` that opens SpoilerShield in a Chrome Side Panel and tries to prefill the **Context** box using a rolling subtitle buffer from Crunchyroll/Netflix pages.
+
+### Run the web app locally
+
+```sh
+npm i
+npm run dev
+```
+
+By default the extension iframe points to `http://localhost:5173` (see `extension/sidepanel.js`).
+
+### Load the extension (unpacked)
+
+1. Open Chrome → `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked**
+4. Select the folder: `YOUR_REPO_PATH/extension`
+
+### Use it
+
+1. Open a Crunchyroll or Netflix playback tab (subtitle capture is heuristic-based).
+2. Click the extension icon.
+3. A side panel opens with the SpoilerShield web app.
+4. The extension posts `SPOILERSHIELD_PREFILL` into the iframe to prefill Watch Setup + Context.
+5. If subtitles can’t be captured, it sends an empty context; the app should prompt you gently for the last line.
+
+### Config
+
+- **Web app URL**: `extension/sidepanel.js` → `WEB_APP_URL`
+- **MVP token**: hardcoded shared secret `"spoilershield-mvp-1"` in both the extension and the web app. (This is only a basic safeguard against random `postMessage` injection.)

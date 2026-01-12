@@ -4,6 +4,8 @@ import { ChatPanel } from '@/components/ChatPanel';
 import { useChat } from '@/hooks/useChat';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { WatchSetup, ResponseStyle, RefinementOption } from '@/lib/types';
+import { toast } from '@/components/ui/sonner';
+import { useEffect } from 'react';
 
 const defaultSetup: WatchSetup = {
   platform: 'crunchyroll',
@@ -14,9 +16,58 @@ const defaultSetup: WatchSetup = {
   context: '',
 };
 
+const SPOILERSHIELD_EXTENSION_TOKEN = 'spoilershield-mvp-1';
+
 const Index = () => {
   const [watchSetup, setWatchSetup] = useLocalStorage<WatchSetup>('spoilershield-setup', defaultSetup);
   const { messages, isLoading, error, sendMessage, refineLastAnswer, setError } = useChat();
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      // Accept context prefill only if it contains our shared token.
+      const data = event.data as unknown;
+      if (!data || typeof data !== 'object') return;
+
+      const maybe = data as {
+        type?: unknown;
+        token?: unknown;
+        payload?: unknown;
+      };
+
+      if (maybe.type !== 'SPOILERSHIELD_PREFILL') return;
+      if (maybe.token !== SPOILERSHIELD_EXTENSION_TOKEN) return;
+      if (!maybe.payload || typeof maybe.payload !== 'object') return;
+
+      const payload = maybe.payload as Partial<{
+        platform: string;
+        title: string;
+        season: string;
+        episode: string;
+        timestamp: string;
+        context: string;
+      }>;
+
+      setWatchSetup((prev) => ({
+        ...prev,
+        platform: typeof payload.platform === 'string' ? payload.platform : prev.platform,
+        showTitle: typeof payload.title === 'string' ? payload.title : prev.showTitle,
+        season: typeof payload.season === 'string' ? payload.season : prev.season,
+        episode: typeof payload.episode === 'string' ? payload.episode : prev.episode,
+        timestamp: typeof payload.timestamp === 'string' ? payload.timestamp : prev.timestamp,
+        context: typeof payload.context === 'string' ? payload.context : prev.context,
+      }));
+
+      setError(null);
+      const platformLabel =
+        typeof payload.platform === 'string' && payload.platform.trim()
+          ? payload.platform
+          : 'your player';
+      toast(`Context loaded from ${platformLabel}`);
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [setError, setWatchSetup]);
 
   const handleSendMessage = (message: string, style: ResponseStyle) => {
     sendMessage(message, watchSetup, style);
