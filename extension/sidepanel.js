@@ -3,7 +3,7 @@
 // Config
 // - For local dev: Vite default is http://localhost:5173
 // - For prod: replace with your deployed URL
-const WEB_APP_URL = "http://localhost:5173";
+const WEB_APP_URL = "http://localhost:8080";
 
 // Shared MVP token (must match the web app listener).
 const SPOILERSHIELD_EXTENSION_TOKEN = "spoilershield-mvp-1";
