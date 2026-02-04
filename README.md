@@ -1,9 +1,11 @@
 # SpoilerShield (WIP)  
 *A spoiler-safe Q&A side panel for anime & TV*
 
-SpoilerShield helps people ask questions while watching a show **without getting spoiled**.
+SpoilerShield helps people ask questions while watching a show **without getting spoiled**. This project treats safety as a first-class product constraint, not an afterthought.
 
 The core insight: people get confused mid-episode, but Googling anything risks spoilers. SpoilerShield lives alongside the video player and answers questions using only what the viewer has already seen. This is designed for people watching narrative-heavy content (anime, dramas) who want clarity without losing the experience.
+
+I’m building SpoilerShield end to end, including product design, frontend, extension UX, backend services, and AI system design.
 
 
 ---
@@ -61,6 +63,8 @@ This side-panel flow is the **intended long-term UX**, not the standalone web ap
 ---
 
 ## What is intentionally WIP / broken
+
+These are the current limitations I’m actively iterating on.
 
 - **Answer quality tuning**
   - The model is currently too conservative for “safe basics”
