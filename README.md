@@ -1,54 +1,88 @@
-# Welcome to your Lovable project
+# SpoilerShield (WIP)  
+*A spoiler-safe Q&A side panel for anime & TV*
 
-## Project info
+SpoilerShield helps people ask questions while watching a show **without getting spoiled**.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+The core insight: people get confused mid-episode, but Googling anything risks spoilers. SpoilerShield lives alongside the video player and answers questions safely, using only information the viewer has already seen.
 
-## How can I edit this code?
 
-There are several ways of editing your application.
+---
 
-**Use Lovable**
+## What SpoilerShield does (today)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### 🧠 Core idea
+Answer questions *without* revealing:
+- future plot points
+- character reveals
+- foreshadowing
+- hindsight explanations
 
-Changes made via Lovable will be committed automatically to this repo.
+If an answer can’t be given safely, the system asks for more context or refuses in a user-friendly way.
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 🧩 Current MVP surfaces
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+#### 1. Web app (Lovable-deployed)
+- Chat interface for spoiler-safe Q&A
+- Guided setup: detect show → confirm progress → ask questions
+- Spoiler-safety rules baked into prompts and audits
 
-Follow these steps:
+#### 2. Chrome Side Panel Extension (primary UX)
+- Opens SpoilerShield next to the video player
+- Attempts to detect what the user is watching (Crunchyroll first)
+- Prefills show context when possible
+- Always allows manual correction
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+This side-panel flow is the **intended long-term UX**, not the standalone web app.
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+---
 
-# Step 3: Install the necessary dependencies.
-npm i
+## What works locally
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+- Side panel opens reliably
+- Show detection + confirmation flow works for supported pages
+- Spoiler-safe refusal logic is in place
+- Backend architecture for:
+  - context fetching
+  - sanitization
+  - answer generation
+  - second-pass spoiler audit
 
-**Edit a file directly in GitHub**
+---
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## What is intentionally WIP / broken
 
-**Use GitHub Codespaces**
+- **Answer quality tuning**
+  - The model is currently too conservative for “safe basics”
+  - Actively iterating on SAFE vs SPOILER-RISK classification
+- **Context sourcing**
+  - Episode-level wiki parsing is experimental
+  - Only validated on a small anime subset
+- **Deploy consistency**
+  - Some Supabase Edge Functions are still being stabilized
+  - “Failed to fetch” can occur depending on environment
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+---
+
+## What I’m actively working on next
+
+1. Improving “safe basics” answers  
+   (e.g., *“Who is (MAIN CHARACTER)?” should never be blocked*)
+2. Making spoiler refusals more human and fun  
+   (not robotic safety language)
+3. Tightening environment + deployment reliability
+4. Expanding show coverage beyond the MVP anime set
+
+---
+
+## Repo structure (high level)
+
+src/ → Web app (React / Vite)
+extension/ → Chrome Side Panel Extension (Manifest V3)
+supabase/functions/ → Edge Functions (chat, audit, context)
+
+---
 
 ## What technologies are used for this project?
 
@@ -60,17 +94,6 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
 
 ## Dev: Side Panel Extension
 
