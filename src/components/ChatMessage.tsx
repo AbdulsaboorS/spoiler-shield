@@ -1,6 +1,6 @@
 import { ChatMessage as ChatMessageType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, User, Bot } from 'lucide-react';
+import { AlertTriangle, User, Bot, ShieldCheck } from 'lucide-react';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -24,15 +24,23 @@ export function ChatMessage({ message, onReportSpoiler }: ChatMessageProps) {
         </div>
         
         {!isUser && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReportSpoiler}
-            className="h-7 text-xs text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10"
-          >
-            <AlertTriangle className="w-3 h-3 mr-1" />
-            That felt spoilery
-          </Button>
+          <div className="flex items-center gap-2">
+            {message.audited && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <ShieldCheck className="w-3 h-3 text-primary" />
+                <span>Safety edit applied</span>
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onReportSpoiler}
+              className="h-7 text-xs text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10"
+            >
+              <AlertTriangle className="w-3 h-3 mr-1" />
+              That felt spoilery
+            </Button>
+          </div>
         )}
       </div>
 

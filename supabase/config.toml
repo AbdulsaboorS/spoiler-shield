@@ -1,4 +1,17 @@
-project_id = "bojxlmtdfhtdpdhapwki"
+# Project ID will be set when you run: supabase link --project-ref <your-project-ref>
+# project_id = "your-project-ref-here"
 
 [functions."spoiler-shield-chat"]
+verify_jwt = false
+
+[functions."audit-answer"]
+verify_jwt = false
+
+[functions."fetch-fandom-episode"]
+verify_jwt = false
+
+[functions."log-spoiler-report"]
+verify_jwt = false
+
+[functions."sanitize-episode-context"]
 verify_jwt = false

@@ -13,7 +13,8 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Open SpoilerShield"
+    "default_title": "Open SpoilerShield",
+    "default_popup": "popup.html"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -23,10 +24,12 @@
       "matches": [
         "https://*.crunchyroll.com/*",
         "https://crunchyroll.com/*",
+        "https://www.crunchyroll.com/*",
         "https://www.netflix.com/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ]
 }

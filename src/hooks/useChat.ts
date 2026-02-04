@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ChatMessage, ResponseStyle, RefinementOption, WatchSetup } from '@/lib/types';
 import { useLocalStorage } from './useLocalStorage';
 
@@ -8,6 +8,7 @@ export function useChat() {
   const [messages, setMessages] = useLocalStorage<ChatMessage[]>('spoilershield-chat', []);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
 
   const sendMessage = useCallback(async (
     question: string,
@@ -27,6 +28,9 @@ export function useChat() {
       style
     };
 
+    // Store user message ID to ensure it's preserved
+    const userMessageId = userMessage.id;
+    
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setError(null);
@@ -75,13 +79,20 @@ export function useChat() {
       const updateAssistantMessage = (content: string) => {
         assistantContent = content;
         setMessages(prev => {
-          const last = prev[prev.length - 1];
+          // Ensure user message is preserved - if missing, add it back
+          let messagesWithUser = prev;
+          const hasUserMessage = prev.some(m => m.id === userMessageId);
+          if (!hasUserMessage) {
+            messagesWithUser = [...prev, userMessage];
+          }
+          
+          const last = messagesWithUser[messagesWithUser.length - 1];
           if (last?.role === 'assistant') {
-            return prev.map((m, i) => 
-              i === prev.length - 1 ? { ...m, content } : m
+            return messagesWithUser.map((m, i) => 
+              i === messagesWithUser.length - 1 ? { ...m, content } : m
             );
           }
-          return [...prev, {
+          return [...messagesWithUser, {
             id: crypto.randomUUID(),
             role: 'assistant' as const,
             content,
@@ -141,7 +152,73 @@ export function useChat() {
         }
       }
 
+      // Audit pass disabled for MVP - endpoint not deployed yet
+      // TODO: Re-enable when audit-answer endpoint is deployed
+      // The original answer is already displayed, so no action needed
+      if (assistantContent.trim()) {
+        // Ensure message is persisted - verify it exists AND preserve user message
+        setMessages(prev => {
+          // CRITICAL: Ensure user message is preserved
+          let messagesWithUser = prev;
+          const hasUserMessage = prev.some(m => m.id === userMessageId);
+          if (!hasUserMessage && userMessageId) {
+            messagesWithUser = [...prev, userMessage];
+          }
+          
+          const last = messagesWithUser[messagesWithUser.length - 1];
+          // If last message is assistant and has content, ensure it's preserved
+          if (last?.role === 'assistant' && last.content.trim()) {
+            return messagesWithUser; // Return with user message preserved
+          }
+          // If somehow missing, add it back (shouldn't happen, but safety check)
+          if (assistantContent.trim()) {
+            return [...messagesWithUser, {
+              id: crypto.randomUUID(),
+              role: 'assistant' as const,
+              content: assistantContent,
+              timestamp: new Date(),
+              style
+            }];
+          }
+          return messagesWithUser; // Always return with user message preserved
+        });
+      }
+
     } catch (err) {
+      // If we have partial content, preserve it even on error
+      if (assistantContent.trim()) {
+        setMessages(prev => {
+          // CRITICAL: Ensure user message is preserved
+          let messagesWithUser = prev;
+          const hasUserMessage = prev.some(m => m.id === userMessageId);
+          if (!hasUserMessage && userMessageId) {
+            messagesWithUser = [...prev, userMessage];
+          }
+          
+          const last = messagesWithUser[messagesWithUser.length - 1];
+          // Ensure assistant message exists with content
+          if (last?.role === 'assistant') {
+            // Update existing message if content is missing or shorter
+            if (!last.content || last.content.length < assistantContent.length) {
+              return messagesWithUser.map((m, i) => 
+                i === messagesWithUser.length - 1 
+                  ? { ...m, content: assistantContent }
+                  : m
+              );
+            }
+            return messagesWithUser;
+          }
+          // Add message if missing
+          return [...messagesWithUser, {
+            id: crypto.randomUUID(),
+            role: 'assistant' as const,
+            content: assistantContent,
+            timestamp: new Date(),
+            style
+          }];
+        });
+      }
+      
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsLoading(false);

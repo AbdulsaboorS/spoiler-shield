@@ -1,10 +1,11 @@
 export interface WatchSetup {
   platform: string;
   showTitle: string;
+  showId?: number; // TVMaze show ID
   season: string;
   episode: string;
   timestamp: string;
-  context: string;
+  context: string; // Episode summary/recap or manual context
 }
 
 export interface ChatMessage {
@@ -24,3 +25,4 @@ export interface SpoilerReport {
 
 export type ResponseStyle = 'quick' | 'explain' | 'lore';
 export type RefinementOption = 'shorter' | 'detail' | 'examples' | 'terms';
+export type EpisodeSource = 'tvmaze' | 'fandom' | 'manual' | null;
