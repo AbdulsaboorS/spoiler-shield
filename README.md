@@ -3,7 +3,7 @@
 
 SpoilerShield helps people ask questions while watching a show **without getting spoiled**.
 
-The core insight: people get confused mid-episode, but Googling anything risks spoilers. SpoilerShield lives alongside the video player and answers questions safely, using only information the viewer has already seen.
+The core insight: people get confused mid-episode, but Googling anything risks spoilers. SpoilerShield lives alongside the video player and answers questions using only what the viewer has already seen. This is designed for people watching narrative-heavy content (anime, dramas) who want clarity without losing the experience.
 
 
 ---
@@ -24,9 +24,18 @@ If an answer can’t be given safely, the system asks for more context or refuse
 ### 🧩 Current MVP surfaces
 
 #### 1. Web app (Lovable-deployed)
+
 - Chat interface for spoiler-safe Q&A
 - Guided setup: detect show → confirm progress → ask questions
 - Spoiler-safety rules baked into prompts and audits
+
+## Live preview (WIP)
+
+Web app (Lovable deploy):  
+https://spoilershield.lovable.app/
+
+> Note: This deployment is intentionally a work in progress. Some flows are incomplete or unstable by design.
+  
 
 #### 2. Chrome Side Panel Extension (primary UX)
 - Opens SpoilerShield next to the video player
