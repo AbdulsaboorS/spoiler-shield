@@ -1,7 +1,8 @@
 # SpoilerShield – Project Context & Technical PRD
 
-> **Last updated:** 2026‑02‑09  
-> **Owner:** Abdul (primary) – intended to be readable by any AI coding agent or human collaborator.
+> **Last updated:** 2026‑02‑15  
+> **Owner:** Abdul (primary) – intended to be readable by any AI coding agent or human collaborator.  
+> **Agent handoff:** See **AGENTS.md** for quick orientation, current bugs, and handoff checklist.
 
 This file is the **single source of truth** for SpoilerShield’s product intent, architecture, and current implementation state.  
 Every time you land a meaningful change (feature or bugfix), add a short note to **Section 7 – Change Log**.
@@ -65,7 +66,7 @@ The assistant should feel like a **smart friend watching with you**, not a compl
 - **External APIs**
   - **TVMaze** – show search + episode summaries
   - **Fandom wiki** – manually constructed episode URLs for Jujutsu Kaisen S1
-  - **Lovable AI Gateway** – chat + sanitization + audit (calls Google Gemini 2.5 Flash)
+  - **Lovable AI Gateway** – chat + sanitization + audit (calls `google/gemini-2.5-flash`; key: `LOVABLE_API_KEY` Supabase secret)
 
 ### 2.2 Data Flow (Side Panel Q&A)
 
@@ -188,53 +189,7 @@ The system prompt enforces 3 categories:
 
 ### 4.1 Steps & Navigation
 
-Implemented in `src/pages/Index.tsx` (side panel branch of component):
-
-1. **Step: `show`**
-   - Shows:
-     - `Detected` card (if `detectedShowInfo` is available)
-       - Title, platform, maybe `SxEy`
-       - Buttons: Confirm / Change
-       - Re-detect button (uses `SPOILERSHIELD_REQUEST_REDETECT` → content script)
-     - Manual **ShowSearch** (TVMaze search)
-   - Confirm detected:
-     - Resets progress for new shows
-     - Uses TVMaze match if available
-   - Change:
-     - Dismisses detected card (until re-detect or show change).
-
-2. **Step: `progress`**
-   - Show name at top.
-   - If we have `showId`:
-     - Uses `EpisodeSelector` (TVMaze) to pick season, episode, timestamp.
-   - If no `showId` but we do have `showTitle`:
-     - Prompts to search again or allows **manual** season/episode input.
-   - When season + episode are set:
-     - Triggers `useEpisodeRecap.fetchRecap` (guards to avoid repeated fetches).
-   - Displays **Episode Context** card:
-     - If recap found: shows summary and explains it came from TVMaze (or Fandom, once labelled).
-     - If no recap: asks user to paste a recap manually.
-
-3. **Step: `context`**
-   - `Edit Context` view:
-     - `Textarea` bound to `watchSetup.context`.
-     - Button **Continue to Q&A** (disabled until there is non-empty context).
-
-4. **Step: `qa`**
-   - Safety gate: if `watchSetup.context` is empty, shows **Context Required** error card with button back to Edit Context.
-   - Shows Q&A/history:
-     - Scrollable container (auto-scrolls to bottom when new messages arrive or loading starts).
-     - Grouped Question/Answer pairs (`user` message + next `assistant` message).
-   - Question input:
-     - Text input + Send button
-     - Disabled if loading or if context is empty.
-   - Style pills:
-     - Quick / Explain / Lore – influences style instructions inside the prompt (but still spoiler-safe).
-
-5. **Header**
-   - In side panel mode:
-     - Back button (when not on `show`).
-     - On `qa` step: links to **Change show**, **Edit progress**, **Edit context**.
+Side panel flow: detect show (Detected card or manual search) → confirm or change → select season/episode and optionally timestamp → episode recap loads (TVMaze or Fandom fallback) → confirm progress → edit context if needed → Q&A with scrollable history, style pills, and persistent header links (Change show, Edit progress, Edit context). For exact UI behavior and step logic, see `src/pages/Index.tsx` (side panel branch) and the components it uses (e.g. `ShowSearch`, `EpisodeSelector`, `ProgressConfirmation`, `ChatPanel`).
 
 ### 4.2 Web App (Non-side-panel) Mode
 
@@ -287,6 +242,16 @@ Implemented in `src/pages/Index.tsx` (side panel branch of component):
 
 ## 6. Known Limitations & Future State
 
+### 6.0 Current State & Open Bugs
+
+- **Chat returns 500 / "Failed to get response"**  
+  When the user asks a question in the side panel, the Supabase function `spoiler-shield-chat` returns 500 and the client shows "Failed to get response."  
+  - **Likely causes:** `LOVABLE_API_KEY` not set for the linked Supabase project, or Lovable API rejecting the request (key format/expired).  
+  - **Debug:** Check Network tab → `spoiler-shield-chat` response body (may include `error`, `details`, `debug`). Check Supabase dashboard → Logs → Edge Functions for "AI gateway error" or "LOVABLE_API_KEY is not configured."  
+  - **See:** AGENTS.md Section 6 (debug steps inlined in bug table).
+- **Google Gemini direct migration** was attempted and reverted (model/endpoint 404 in v1beta). All LLM calls use Lovable AI Gateway only.
+- **Audit pass** remains disabled in `useChat.ts`; re-enable when chat 500 is fixed and audit endpoint is confirmed working.
+
 ### 6.1 Current Limitations (MVP)
 
 - **Show coverage**:
@@ -309,38 +274,25 @@ Implemented in `src/pages/Index.tsx` (side panel branch of component):
   - Searching/filtering chat history.
   - “Felt spoilery” button exists conceptually but logging is basic (`log-spoiler-report` just logs).
 
-### 6.2 Desired Future State (Conceptual)
+### 6.2 Future Vision
 
-- **Broader show coverage**:
-  - Generalize Fandom fetching beyond JJK S1:
-    - Robust slug discovery
-    - Multi-season support
-  - Fallback to TMDB or other APIs for non-anime shows.
-- **Stronger spoiler safety**:
-  - Re-enable `audit-answer` pass:
-    - Keep initial answer streaming.
-    - When audit completes, if the audited answer differs:
-      - Replace the displayed answer.
-      - Mark message as `audited` and show “Safety edit applied.”
-- **Better UX niceties**:
-  - Clear chat / new session button in side panel.
-  - Filter / search through history.
-  - More explicit display of:
-    - Confirmed show
-    - Season/episode
-    - Where recap came from (TVMaze vs. Fandom vs. manual).
-- **Robust telemetry & error reporting**:
-  - Non-invasive logging of:
-    - Detection failures
-    - Recap fetch failures
-    - Spoiler reports
-  - Possibly store structured data in Supabase tables (not just logs).
+Future vision: See **ROADMAP.md** for desired future state and feature ideas.
 
 ---
 
 ## 7. Change Log (High-Level)
 
 > Keep this ordered **newest first**. Each entry should be 1–3 bullet points.
+
+### 2026‑02‑15
+
+- **Docs restructure:** Restructured AGENTS.md and PROJECT_CONTEXT.md to reduce overlap; added Rules & Constraints and Smoke Test Checklist to AGENTS.md; moved future vision to ROADMAP.md; trimmed Section 4.1 and removed Section 8 (deferred to AGENTS.md).
+
+### 2026‑02‑12
+
+- **Lovable revert:** All Edge Functions use **LOVABLE_API_KEY** and Lovable AI Gateway again (reverted from direct Google Gemini API after 404/model-not-found issues).
+- **Chat 500 bug open:** Side panel shows "Failed to get response" when asking a question; Supabase returns 500. Debug payload added in `spoiler-shield-chat` (returns `debug` in error responses). Resolution pending (verify secret, Lovable key, logs).
+- **Agent handoff:** Added **AGENTS.md** for agent handoffs; updated PROJECT_CONTEXT with current state and open bugs.
 
 ### 2026‑02‑09
 
@@ -403,42 +355,7 @@ Implemented in `src/pages/Index.tsx` (side panel branch of component):
 
 ---
 
-## 8. How to Work on This Project (For Future You / Other Agents)
+## 8. How to Work on This Project
 
-1. **Onboarding**
-   - Read this `PROJECT_CONTEXT.md` fully.
-   - Skim:
-     - `src/pages/Index.tsx` (side panel branch)
-     - `src/hooks/useChat.ts`
-     - `src/hooks/useEpisodeRecap.ts`
-     - `supabase/functions/spoiler-shield-chat/index.ts`
-
-2. **Running Locally**
-   - Ensure `.env.local` is present and correct (copy from `.env.example`).
-   - Run the dev server (`npm install` + `npm run dev` or equivalent, depending on package.json).
-   - Load the Chrome extension from `extension/` (unpacked).
-
-3. **When Making Changes**
-   - Be extremely careful with:
-     - `useEffect` and `useCallback` dependencies in `Index.tsx` (side panel).
-     - `localStorage` keys – they persist state across sessions and can cause confusing behavior.
-   - After each meaningful change set:
-     - Update **Section 7 – Change Log** with a 1–2 bullet summary.
-     - If you alter behavior relevant to product decisions, also update earlier sections (vision/architecture/limitations) if needed.
-
-4. **When Debugging LLM Behavior**
-   - Check:
-     - Is the browser hitting the **correct Supabase URL**?
-     - Is `spoiler-shield-chat` deployed with the latest system prompt?
-     - What `context` text is actually being sent?
-   - Compare behavior between:
-     - Local side panel
-     - The version hosted via Lovable (if still available) – differences usually point to **deployment drift** or **prompt drift**.
-
-5. **How to Use This File**
-   - Any AI agent should:
-     - Read this file first to understand the system and product intent.
-     - Keep changes consistent with the **spoiler safety contract** and overall UX.
-   - Any human contributor should:
-     - Update this file when implementing new features / major bug fixes.
+How to work on this project: See **AGENTS.md** for onboarding, local setup, rules, smoke test checklist, and handoff procedures.
 
