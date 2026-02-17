@@ -110,15 +110,15 @@ serve(async (req) => {
     debugInfo.hasContext = !!context;
     debugInfo.contextLength = context?.length;
     
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
     debugInfo.step = 'key_check';
-    debugInfo.hasKey = !!LOVABLE_API_KEY;
-    debugInfo.keyLength = LOVABLE_API_KEY?.length;
-    
-    if (!LOVABLE_API_KEY) {
+    debugInfo.hasKey = !!GOOGLE_AI_API_KEY;
+    debugInfo.keyLength = GOOGLE_AI_API_KEY?.length;
+
+    if (!GOOGLE_AI_API_KEY) {
       return new Response(
-        JSON.stringify({ 
-          error: "LOVABLE_API_KEY is not configured",
+        JSON.stringify({
+          error: "GOOGLE_AI_API_KEY is not configured",
           debug: debugInfo
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -160,16 +160,16 @@ ${styleInstructions[style || 'quick']}
 USER'S QUESTION:
 ${question}`;
 
-    // Use Lovable AI Gateway (streaming)
-    debugInfo.step = 'calling_lovable';
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Use Google Generative AI (OpenAI-compatible endpoint, streaming)
+    debugInfo.step = 'calling_google_ai';
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${GOOGLE_AI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMessage },

@@ -48,8 +48,9 @@ spoiler-shield/
 ## 3. Current State (As of Last Session)
 
 - **Deployed:** Backend is Supabase Edge Functions (project ref `dbileyqtnisyqzgwwive`). Frontend hosted on Lovable; local dev via `npm run dev`.
-- **Enabled:** Lovable AI Gateway for all LLM calls (reverted from direct Google Gemini after 404). Audit pass **disabled** in `useChat.ts` (TODO to re-enable once chat 500 is fixed).
-- **Chat 500 fix in progress:** Root cause identified — `LOVABLE_API_KEY` Supabase secret was set to a Google Gemini key (wrong value). Fix: `supabase secrets set LOVABLE_API_KEY=<actual-lovable-key>` + redeploy.
+- **LLM:** All LLM calls use **Google Generative AI directly** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-2.0-flash`, OpenAI-compatible endpoint). Lovable AI Gateway is no longer used.
+- **Chat 500:** Fixed. Root cause was Lovable gateway key being inaccessible outside their platform. Deploy `spoiler-shield-chat` + `sanitize-episode-context` + `audit-answer` to activate fix.
+- **Audit pass:** Still disabled in `useChat.ts` — re-enable after confirming chat works end-to-end.
 
 ---
 
@@ -83,14 +84,13 @@ After making changes, run this quick manual check to catch regressions:
 
 | Issue | What happens | Where to look | Status |
 |-------|----------------|---------------|--------|
-| **Chat 500 / "Failed to get response"** | User asks a question; UI shows error. Root cause: `LOVABLE_API_KEY` Supabase secret was set to a Google Gemini key (wrong value). Fix: set the correct Lovable key and redeploy `spoiler-shield-chat`. `useChat.ts` now parses error body to surface real server errors. | `supabase/functions/spoiler-shield-chat/index.ts`; Network tab → response body; Supabase dashboard → Logs → Edge Functions | **Fix in progress — awaiting `supabase secrets set` + redeploy.** |
-| **Google Gemini direct migration abandoned** | Switched to Google Gemini API; hit 404 (model not found for v1beta). Reverted to Lovable. | N/A | Reverted; use Lovable only. |
+| **Chat 500 / "Failed to get response"** | Fixed 2026-02-17. Root cause: Lovable AI Gateway key is internal/inaccessible outside Lovable's platform. All LLM calls switched to Google Generative AI direct endpoint. | `supabase/functions/spoiler-shield-chat/index.ts` | **Fixed — deploy functions to activate.** |
 
 ---
 
 ## 7. Upcoming Work (Prioritized)
 
-1. **Verify chat fix** – After setting correct `LOVABLE_API_KEY` and deploying, confirm Q&A works end-to-end.
+1. **Verify chat fix** – Deploy the 3 updated functions and confirm Q&A streams back correctly end-to-end.
 2. **UI/UX updates** – Owner has improvements in mind; to be discussed next session.
 3. **Re-enable audit pass** – Wire `audit-answer` in `useChat.ts` after streaming; show "Safety edit applied" when answer is modified.
 4. **Clear chat UI** – Side panel button to clear conversation (hook `clearChat` exists; needs UI).
@@ -121,7 +121,7 @@ npm install && npm run dev
 supabase login
 supabase link --project-ref dbileyqtnisyqzgwwive
 supabase secrets list
-supabase secrets set LOVABLE_API_KEY=your-lovable-key
+# GOOGLE_AI_API_KEY should already be set; if not: supabase secrets set GOOGLE_AI_API_KEY=your-key
 supabase functions deploy spoiler-shield-chat
 supabase functions deploy sanitize-episode-context
 supabase functions deploy audit-answer

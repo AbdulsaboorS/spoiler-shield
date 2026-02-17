@@ -66,7 +66,7 @@ The assistant should feel like a **smart friend watching with you**, not a compl
 - **External APIs**
   - **TVMaze** – show search + episode summaries
   - **Fandom wiki** – manually constructed episode URLs for Jujutsu Kaisen S1
-  - **Lovable AI Gateway** – chat + sanitization + audit (calls `google/gemini-2.5-flash`; key: `LOVABLE_API_KEY` Supabase secret)
+  - **Google Generative AI** – chat + sanitization + audit (OpenAI-compatible endpoint, model: `gemini-2.0-flash`; key: `GOOGLE_AI_API_KEY` Supabase secret)
 
 ### 2.2 Data Flow (Side Panel Q&A)
 
@@ -207,7 +207,7 @@ Side panel flow: detect show (Detected card or manual search) → confirm or cha
 - `.env.example` (template):
   - `VITE_SUPABASE_URL=https://your-project-ref.supabase.co`
   - `VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`
-  - `LOVABLE_API_KEY` is **not** in `.env.local`; it’s set as a Supabase secret.
+  - `GOOGLE_AI_API_KEY` is **not** in `.env.local`; it's set as a Supabase secret.
 
 ### 5.2 Supabase Config
 
@@ -244,13 +244,8 @@ Side panel flow: detect show (Detected card or manual search) → confirm or cha
 
 ### 6.0 Current State & Open Bugs
 
-- **Chat returns 500 / "Failed to get response"**  
-  When the user asks a question in the side panel, the Supabase function `spoiler-shield-chat` returns 500 and the client shows "Failed to get response."  
-  - **Likely causes:** `LOVABLE_API_KEY` not set for the linked Supabase project, or Lovable API rejecting the request (key format/expired).  
-  - **Debug:** Check Network tab → `spoiler-shield-chat` response body (may include `error`, `details`, `debug`). Check Supabase dashboard → Logs → Edge Functions for "AI gateway error" or "LOVABLE_API_KEY is not configured."  
-  - **See:** CLAUDE.md Section 6 (debug steps inlined in bug table).
-- **Google Gemini direct migration** was attempted and reverted (model/endpoint 404 in v1beta). All LLM calls use Lovable AI Gateway only.
-- **Audit pass** remains disabled in `useChat.ts`; re-enable when chat 500 is fixed and audit endpoint is confirmed working.
+- **Chat 500 bug** — **Fixed 2026-02-17.** Root cause: `LOVABLE_API_KEY` was a Google Gemini key (wrong value), and Lovable's AI Gateway is an internal shared key not accessible outside their hosted platform. All LLM calls now use **Google Generative AI directly** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-2.0-flash` via OpenAI-compatible endpoint). `useChat.ts` also now parses server error bodies for clearer error messages.
+- **Audit pass** remains disabled in `useChat.ts`; re-enable after chat is confirmed working end-to-end.
 
 ### 6.1 Current Limitations (MVP)
 
@@ -283,6 +278,12 @@ Future vision: See **ROADMAP.md** for desired future state and feature ideas.
 ## 7. Change Log (High-Level)
 
 > Keep this ordered **newest first**. Each entry should be 1–3 bullet points.
+
+### 2026‑02‑17
+
+- **Chat 500 fix:** Switched all LLM calls from Lovable AI Gateway (`LOVABLE_API_KEY`) to Google Generative AI OpenAI-compatible endpoint (`GOOGLE_AI_API_KEY`, `gemini-2.0-flash`). Lovable's gateway key is internal/shared and not user-accessible outside their hosted platform.
+- **Error handling:** `useChat.ts` now parses 500 response bodies to surface real server error messages instead of generic "Failed to get response."
+- **Docs/housekeeping:** Renamed `AGENTS.md` → `CLAUDE.md`; fixed leading space in `VITE_SUPABASE_URL` in `.env.local`; updated `.env.example` to reference `GOOGLE_AI_API_KEY`.
 
 ### 2026‑02‑15
 
