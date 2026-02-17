@@ -101,17 +101,33 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const debugInfo: any = { step: 'entry', method: req.method };
+  
   try {
     const { question, context, style, showInfo } = await req.json();
+    debugInfo.step = 'parsed';
+    debugInfo.hasQuestion = !!question;
+    debugInfo.hasContext = !!context;
+    debugInfo.contextLength = context?.length;
+    
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    debugInfo.step = 'key_check';
+    debugInfo.hasKey = !!LOVABLE_API_KEY;
+    debugInfo.keyLength = LOVABLE_API_KEY?.length;
     
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      return new Response(
+        JSON.stringify({ 
+          error: "LOVABLE_API_KEY is not configured",
+          debug: debugInfo
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     if (!context || !context.trim()) {
       return new Response(
-        JSON.stringify({ error: "Context is required to prevent spoilers" }),
+        JSON.stringify({ error: "Context is required to prevent spoilers", debug: debugInfo }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -144,7 +160,8 @@ ${styleInstructions[style || 'quick']}
 USER'S QUESTION:
 ${question}`;
 
-    // First pass: Generate initial answer
+    // Use Lovable AI Gateway (streaming)
+    debugInfo.step = 'calling_lovable';
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -160,32 +177,51 @@ ${question}`;
         stream: true,
       }),
     });
+    debugInfo.step = 'lovable_response';
+    debugInfo.responseStatus = response.status;
+    debugInfo.responseOk = response.ok;
+    debugInfo.responseStatusText = response.statusText;
 
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          JSON.stringify({ error: "Rate limit exceeded. Please try again later.", debug: debugInfo }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "Service temporarily unavailable." }),
+          JSON.stringify({ error: "Service temporarily unavailable.", debug: debugInfo }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       const errorText = await response.text();
+      debugInfo.step = 'lovable_error';
+      debugInfo.errorText = errorText.substring(0, 500);
       console.error("AI gateway error:", response.status, errorText);
-      throw new Error("AI gateway error");
+      return new Response(
+        JSON.stringify({ 
+          error: "AI gateway error",
+          debug: debugInfo
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(response.body, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (error) {
+    debugInfo.step = 'catch_block';
+    debugInfo.errorMessage = error instanceof Error ? error.message : String(error);
+    debugInfo.errorType = error instanceof Error ? error.constructor.name : typeof error;
     console.error("Chat function error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Unknown error",
+        details: error instanceof Error ? error.stack : String(error),
+        debug: debugInfo
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

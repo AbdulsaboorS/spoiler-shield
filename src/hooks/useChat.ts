@@ -65,7 +65,12 @@ export function useChat() {
         if (response.status === 402) {
           throw new Error('Service temporarily unavailable. Please try again later.');
         }
-        throw new Error('Failed to get response');
+        let errMsg = 'Failed to get response';
+        try {
+          const errBody = await response.json();
+          if (errBody.error) errMsg = errBody.error;
+        } catch { /* ignore parse errors */ }
+        throw new Error(errMsg);
       }
 
       if (!response.body) {
