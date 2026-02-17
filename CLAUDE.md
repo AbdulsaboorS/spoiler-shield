@@ -8,7 +8,7 @@ This file is for **AI coding agents** (and humans) switching into this project. 
 
 | Document | Purpose |
 |----------|---------|
-| **AGENTS.md** (this file) | Quick orientation, current bugs, handoff checklist |
+| **CLAUDE.md** (this file) | Quick orientation, current bugs, handoff checklist |
 | **PROJECT_CONTEXT.md** | Full PRD + architecture + change log + how to work on the project |
 
 **Before making changes:** Read `PROJECT_CONTEXT.md` fully. Skim the key files listed in PROJECT_CONTEXT.md (Index.tsx, useChat.ts, useEpisodeRecap.ts, spoiler-shield-chat/index.ts).
@@ -38,7 +38,7 @@ spoiler-shield/
 │   ├── fetch-fandom-episode/
 │   └── log-spoiler-report/
 ├── PROJECT_CONTEXT.md   # Single source of truth (product, architecture, changelog)
-├── AGENTS.md            # This file
+├── CLAUDE.md            # This file
 ├── MIGRATION_GUIDE.md   # Supabase project migration
 └── .env.example         # VITE_SUPABASE_*, no LOVABLE_API_KEY (set as Supabase secret)
 ```
@@ -60,7 +60,7 @@ spoiler-shield/
 - Do not bypass or weaken the spoiler safety contract, even for testing.
 - Do not commit secrets or API keys. `.env.local` must stay in `.gitignore`. Supabase secrets are set via CLI only.
 - Do not remove or modify `useRef`-based guards in `Index.tsx` or `useEpisodeRecap.ts` without understanding the infinite-loop history (see PROJECT_CONTEXT.md Change Log).
-- If you add debug/instrumentation code, note it in AGENTS.md Section 6 (Current Bugs) so the next agent knows to remove or keep it.
+- If you add debug/instrumentation code, note it in CLAUDE.md Section 6 (Current Bugs) so the next agent knows to remove or keep it.
 - When debugging LLM behavior: confirm the browser hits the correct Supabase URL, that `spoiler-shield-chat` is deployed with the latest system prompt, and what `context` text is being sent; compare with Lovable-hosted version if available to spot deployment or prompt drift.
 
 ---
@@ -105,7 +105,7 @@ When you stop and hand off to another agent or return later:
 
 - [ ] **PROJECT_CONTEXT.md** – Section 7 (Change Log) updated with what you did this session.
 - [ ] **PROJECT_CONTEXT.md** – Section 6 (Known Limitations) and Section 4/5 updated if you changed behavior or env.
-- [ ] **AGENTS.md** – Section 6 (Current Bugs) and Section 7 (Future Vision) updated if you fixed a bug or reprioritized.
+- [ ] **CLAUDE.md** – Section 6 (Current Bugs) and Section 7 (Future Vision) updated if you fixed a bug or reprioritized.
 - [ ] No **secrets** in repo (`.env.local` in `.gitignore`; secrets only in Supabase dashboard).
 - [ ] If you added debug/instrumentation, note it in PROJECT_CONTEXT or AGENTS so the next agent knows to remove or keep it.
 

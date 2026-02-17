@@ -2,7 +2,7 @@
 
 > **Last updated:** 2026‑02‑15  
 > **Owner:** Abdul (primary) – intended to be readable by any AI coding agent or human collaborator.  
-> **Agent handoff:** See **AGENTS.md** for quick orientation, current bugs, and handoff checklist.
+> **Agent handoff:** See **CLAUDE.md** for quick orientation, current bugs, and handoff checklist.
 
 This file is the **single source of truth** for SpoilerShield’s product intent, architecture, and current implementation state.  
 Every time you land a meaningful change (feature or bugfix), add a short note to **Section 7 – Change Log**.
@@ -248,7 +248,7 @@ Side panel flow: detect show (Detected card or manual search) → confirm or cha
   When the user asks a question in the side panel, the Supabase function `spoiler-shield-chat` returns 500 and the client shows "Failed to get response."  
   - **Likely causes:** `LOVABLE_API_KEY` not set for the linked Supabase project, or Lovable API rejecting the request (key format/expired).  
   - **Debug:** Check Network tab → `spoiler-shield-chat` response body (may include `error`, `details`, `debug`). Check Supabase dashboard → Logs → Edge Functions for "AI gateway error" or "LOVABLE_API_KEY is not configured."  
-  - **See:** AGENTS.md Section 6 (debug steps inlined in bug table).
+  - **See:** CLAUDE.md Section 6 (debug steps inlined in bug table).
 - **Google Gemini direct migration** was attempted and reverted (model/endpoint 404 in v1beta). All LLM calls use Lovable AI Gateway only.
 - **Audit pass** remains disabled in `useChat.ts`; re-enable when chat 500 is fixed and audit endpoint is confirmed working.
 
@@ -286,13 +286,13 @@ Future vision: See **ROADMAP.md** for desired future state and feature ideas.
 
 ### 2026‑02‑15
 
-- **Docs restructure:** Restructured AGENTS.md and PROJECT_CONTEXT.md to reduce overlap; added Rules & Constraints and Smoke Test Checklist to AGENTS.md; moved future vision to ROADMAP.md; trimmed Section 4.1 and removed Section 8 (deferred to AGENTS.md).
+- **Docs restructure:** Restructured CLAUDE.md and PROJECT_CONTEXT.md to reduce overlap; added Rules & Constraints and Smoke Test Checklist to CLAUDE.md; moved future vision to ROADMAP.md; trimmed Section 4.1 and removed Section 8 (deferred to CLAUDE.md).
 
 ### 2026‑02‑12
 
 - **Lovable revert:** All Edge Functions use **LOVABLE_API_KEY** and Lovable AI Gateway again (reverted from direct Google Gemini API after 404/model-not-found issues).
 - **Chat 500 bug open:** Side panel shows "Failed to get response" when asking a question; Supabase returns 500. Debug payload added in `spoiler-shield-chat` (returns `debug` in error responses). Resolution pending (verify secret, Lovable key, logs).
-- **Agent handoff:** Added **AGENTS.md** for agent handoffs; updated PROJECT_CONTEXT with current state and open bugs.
+- **Agent handoff:** Added **CLAUDE.md** for agent handoffs; updated PROJECT_CONTEXT with current state and open bugs.
 
 ### 2026‑02‑09
 
@@ -357,5 +357,5 @@ Future vision: See **ROADMAP.md** for desired future state and feature ideas.
 
 ## 8. How to Work on This Project
 
-How to work on this project: See **AGENTS.md** for onboarding, local setup, rules, smoke test checklist, and handoff procedures.
+How to work on this project: See **CLAUDE.md** for onboarding, local setup, rules, smoke test checklist, and handoff procedures.
 
