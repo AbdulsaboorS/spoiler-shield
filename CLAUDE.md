@@ -30,6 +30,7 @@ spoiler-shield/
 │   │   ├── useLocalStorage.ts
 │   │   └── useSidePanel.ts
 │   ├── components/      # Header, ShowSearch, EpisodeSelector, ChatPanel, etc.
+│   │   └── steps/       # ShowStep, ProgressStep, ContextStep, QAStep (side panel steps)
 │   └── lib/types.ts     # WatchSetup, ChatMessage, etc.
 ├── supabase/functions/
 │   ├── spoiler-shield-chat/   # Main Q&A endpoint (Lovable AI Gateway, streaming)
@@ -48,9 +49,10 @@ spoiler-shield/
 ## 3. Current State (As of Last Session)
 
 - **Deployed:** Backend is Supabase Edge Functions (project ref `dbileyqtnisyqzgwwive`). Frontend hosted on Lovable; local dev via `npm run dev`.
-- **LLM:** All LLM calls use **Google Generative AI directly** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-2.0-flash`, OpenAI-compatible endpoint). Lovable AI Gateway is no longer used.
-- **Chat 500:** Fixed. Root cause was Lovable gateway key being inaccessible outside their platform. Deploy `spoiler-shield-chat` + `sanitize-episode-context` + `audit-answer` to activate fix.
-- **Audit pass:** Still disabled in `useChat.ts` — re-enable after confirming chat works end-to-end.
+- **LLM:** All LLM calls use **Google Generative AI native API** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-3-flash-preview`). All 3 functions are self-contained (no shared module import — avoids Deno cache issues). Auth via `x-goog-api-key` header only.
+- **Chat:** Working end-to-end. Q&A streams correctly. `useChat.ts` parses `candidates[0].content.parts[0].text`.
+- **Frontend:** `Index.tsx` refactored from 1025 → 664 lines. Step logic extracted into `src/components/steps/` (ShowStep, ProgressStep, ContextStep, QAStep). React hooks violation (useCallback inside conditional) is fixed.
+- **Audit pass:** Still disabled in `useChat.ts` — re-enable after chat is confirmed stable.
 
 ---
 
@@ -82,20 +84,24 @@ After making changes, run this quick manual check to catch regressions:
 
 ## 6. Current Bugs / Open Issues
 
-| Issue | What happens | Where to look | Status |
-|-------|----------------|---------------|--------|
-| **Chat 500 / "Failed to get response"** | Fixed 2026-02-17. Root cause: Lovable AI Gateway key is internal/inaccessible outside Lovable's platform. All LLM calls switched to Google Generative AI direct endpoint. | `supabase/functions/spoiler-shield-chat/index.ts` | **Fixed — deploy functions to activate.** |
+No active bugs. All previously known issues are resolved.
+
+| Issue | Status |
+|-------|--------|
+| Chat 500 (Lovable gateway) | Fixed 2026-02-17 |
+| 404 on OpenAI-compatible endpoint | Fixed 2026-02-19 (native Gemini API) |
+| `gemini-2.0-flash` not available for API key | Fixed 2026-02-21 (switched to `gemini-3-flash-preview`) |
+| React hooks violation in Index.tsx | Fixed 2026-02-21 (useCallbacks moved above conditional) |
 
 ---
 
 ## 7. Upcoming Work (Prioritized)
 
-1. **Verify chat fix** – Deploy the 3 updated functions and confirm Q&A streams back correctly end-to-end.
-2. **UI/UX updates** – Owner has improvements in mind; to be discussed next session.
-3. **Re-enable audit pass** – Wire `audit-answer` in `useChat.ts` after streaming; show "Safety edit applied" when answer is modified.
-4. **Clear chat UI** – Side panel button to clear conversation (hook `clearChat` exists; needs UI).
-5. **Broader show coverage** – Fandom beyond Jujutsu Kaisen S1; multi-season.
-6. **Detection robustness** – More reliable DOM/URL detection across Crunchyroll/Netflix updates.
+1. **UI/UX improvements** – Owner has improvements in mind; to be discussed next session.
+2. **Re-enable audit pass** – Wire `audit-answer` in `useChat.ts` after streaming; show "Safety edit applied" when answer is modified.
+3. **Clear chat UI** – Side panel button to clear conversation (hook `clearChat` exists; needs UI).
+4. **Broader show coverage** – Fandom beyond Jujutsu Kaisen S1; multi-season.
+5. **Detection robustness** – More reliable DOM/URL detection across Crunchyroll/Netflix updates.
 
 ---
 
@@ -131,4 +137,4 @@ supabase functions deploy log-spoiler-report
 
 ---
 
-*Last updated: 2026-02-17.*
+*Last updated: 2026-02-21.*

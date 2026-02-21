@@ -59,17 +59,20 @@ export function useChat() {
       });
 
       if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-        }
-        if (response.status === 402) {
-          throw new Error('Service temporarily unavailable. Please try again later.');
-        }
         let errMsg = 'Failed to get response';
         try {
           const errBody = await response.json();
           if (errBody.error) errMsg = errBody.error;
-        } catch { /* ignore parse errors */ }
+          // Log full detail to console so DevTools shows the real Gemini error
+          console.error('[SpoilerShield] API error:', {
+            status: response.status,
+            error: errBody.error,
+            detail: errBody.detail,
+            debug: errBody.debug,
+          });
+        } catch {
+          console.error('[SpoilerShield] API error (unparseable):', response.status);
+        }
         throw new Error(errMsg);
       }
 
@@ -123,11 +126,10 @@ export function useChat() {
           if (!line.startsWith('data: ')) continue;
 
           const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') break;
 
           try {
             const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
+            const content = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
             if (content) {
               updateAssistantMessage(assistantContent + content);
             }
@@ -146,10 +148,9 @@ export function useChat() {
           if (raw.startsWith(':') || raw.trim() === '') continue;
           if (!raw.startsWith('data: ')) continue;
           const jsonStr = raw.slice(6).trim();
-          if (jsonStr === '[DONE]') continue;
           try {
             const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
+            const content = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
             if (content) {
               updateAssistantMessage(assistantContent + content);
             }

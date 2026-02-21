@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+// Self-contained: no shared module import. Inlined to avoid Deno module cache
+// serving a stale bundle of _shared/gemini.ts.
+const GEMINI_MODEL = "gemini-3-flash-preview";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -17,130 +22,95 @@ QUESTION CLASSIFICATION (Do this automatically for every question):
 You must classify each question into one of three categories and respond accordingly:
 
 **SAFE_BASICS** (Answer immediately, 1-3 sentences)
-- Character names already introduced (e.g., "Who is Yuji?", "What's the main character's name?")
-- Main cast identities
-- Basic definitions/world-building concepts introduced early (e.g., "What is cursed energy?", "What are cursed spirits?")
-- Simple recap of confirmed progress ("What happened so far in S1E4?")
-- Basic character roles and relationships established early
 
-**Rules for SAFE_BASICS:**
-- Answer confidently using general show knowledge, but ONLY up to the user's confirmed progress (Season X, Episode Y)
+DEFAULT TO THIS CATEGORY when in doubt. If a question could reasonably be answered by someone who has only seen the show's premise or the first few episodes, it is SAFE_BASICS.
+
+Examples of SAFE_BASICS questions:
+- "Who is the main character?" → SAFE_BASICS
+- "What's [character]'s name?" → SAFE_BASICS
+- "What are [character]'s powers?" (abilities already shown) → SAFE_BASICS
+- "Who is Yuji?" / "Who is Gojo?" → SAFE_BASICS
+- "What is cursed energy?" → SAFE_BASICS
+- "What are cursed spirits?" → SAFE_BASICS
+- "What happened so far in S1E4?" → SAFE_BASICS
+- Basic character roles, relationships, and abilities introduced up to the confirmed episode
+
+Rules for SAFE_BASICS:
+- Answer confidently using general show knowledge up to the confirmed episode
 - Keep it short: 1-3 sentences
 - No spoilers, no foreshadowing, no future hints
 - Sound natural and helpful, like a friend watching with them
 
 **AMBIGUOUS** (Ask for clarification, friendly tone)
-- Questions that are unclear or need context: "Why did he do that?", "What just happened?", "Why was that important?"
-- Questions about specific scenes without enough context
+- Questions that are unclear or need more context: "Why did he do that?", "What just happened?", "Why was that important?"
+- Questions about specific scenes without enough context to identify what the user means
 
-**Rules for AMBIGUOUS:**
+Rules for AMBIGUOUS:
 - Ask ONE short, friendly follow-up question
 - Do NOT refuse
 - Do NOT hint at future events
-- Examples: "Which scene are you referring to?", "What happened in the last 10 seconds?", "Who was in that scene?"
 
 **SPOILER_RISK** (Refuse playfully, no spoilers)
-- Questions about reveals, identities, backstories: "Who is the traitor?", "What's his real identity?", "What's X's backstory?"
-- Questions about future events, abilities, deaths, twists
-- Anything that would clearly spoil future episodes
 
-**Rules for SPOILER_RISK:**
+Only use this for questions about:
+- SECRET identities not yet revealed in confirmed episodes ("Who is the traitor?", "What's his true identity?")
+- Events, deaths, or twists from FUTURE episodes/seasons
+- Backstories that are only revealed later in the series
+
+Rules for SPOILER_RISK:
 - Refuse in a playful, human way
 - No hints, no foreshadowing, no "you'll find out later"
 - Keep it short and friendly
-- Examples: "I can't tell you that without spoiling you 😭", "If I told you, it would ruin your viewing experience. Not doing that to you.", "That's future-episode territory — I can't spoil it."
+- Examples: "I can't tell you that without spoiling you 😭", "That's future-episode territory — I can't spoil it."
 
 RESPONSE STYLE:
 - "Quick" style: 1-2 sentences, direct answer
 - "Explain" style: Clear explanation with context, 2-4 sentences
-- "Lore" style: Background/world-building focus, still spoiler-safe, 2-4 sentences
+- "Lore" style: Background/world-building focus, still spoiler-safe, 2-4 sentences`;
 
-FEW-SHOT EXAMPLES:
-
-Q: "who is yuji"
-A: "Yuji Itadori is the main character of Jujutsu Kaisen. He's a high school student who becomes involved with jujutsu sorcerers after encountering a cursed object."
-
-Q: "what's the main character's name"
-A: "The main character is Yuji Itadori."
-
-Q: "what is cursed energy"
-A: "Cursed energy is negative emotions that manifest as supernatural power in Jujutsu Kaisen. Sorcerers use it to exorcise cursed spirits."
-
-Q: "what happened so far in season 1 episode 4"
-A: "As of Season 1 Episode 4, [provide a brief recap based on the episode context provided, staying within episode boundaries]."
-
-Q: "why did he do that"
-A: "Which scene are you referring to? If you can describe what happened in the last 10 seconds, I can help explain it."
-
-Q: "what just happened"
-A: "What happened in the last 10 seconds of the scene? That'll help me give you a clear answer."
-
-Q: "who is the traitor"
-A: "I can't tell you that without spoiling you 😭 That's future-episode territory."
-
-Q: "what's his real identity"
-A: "If I told you, it would ruin your viewing experience. Not doing that to you."
-
-Q: "what's x's backstory"
-A: "That's future-episode territory — I can't spoil it."
-
-Remember: Answer SAFE_BASICS confidently. For AMBIGUOUS, ask for context. For SPOILER_RISK, refuse playfully. Sound like a friend, not a bot.`;
-
-const AUDIT_PROMPT = `You are a spoiler safety auditor. Review the draft answer and ensure it contains NO information beyond what's in the provided context.
-
-CONTEXT:
-{context}
-
-DRAFT ANSWER:
-{answer}
-
-If any claim in the answer is NOT explicitly supported by the context, rewrite to remove unsupported claims. Keep it helpful and spoiler-safe. Respond with ONLY the final safe answer.`;
+const styleInstructions: Record<string, string> = {
+  quick: "Respond in 1-2 sentences. Be direct and concise.",
+  explain: "Provide a clear explanation in 2-4 sentences with helpful context.",
+  lore: "Focus on world-building and background information in 2-4 sentences, staying spoiler-safe.",
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const debugInfo: any = { step: 'entry', method: req.method };
-  
+  const debugInfo: Record<string, unknown> = { step: "entry", model: GEMINI_MODEL, url: GEMINI_URL };
+
   try {
     const { question, context, style, showInfo } = await req.json();
-    debugInfo.step = 'parsed';
+    debugInfo.step = "parsed";
     debugInfo.hasQuestion = !!question;
     debugInfo.hasContext = !!context;
     debugInfo.contextLength = context?.length;
-    
+
     const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    debugInfo.step = 'key_check';
+    debugInfo.step = "key_check";
     debugInfo.hasKey = !!GOOGLE_AI_API_KEY;
     debugInfo.keyLength = GOOGLE_AI_API_KEY?.length;
 
     if (!GOOGLE_AI_API_KEY) {
       return new Response(
-        JSON.stringify({
-          error: "GOOGLE_AI_API_KEY is not configured",
-          debug: debugInfo
-        }),
+        JSON.stringify({ error: "GOOGLE_AI_API_KEY is not configured", debug: debugInfo }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!context || !context.trim()) {
+    if (!context?.trim()) {
       return new Response(
         JSON.stringify({ error: "Context is required to prevent spoilers", debug: debugInfo }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const styleInstructions: Record<string, string> = {
-      quick: "Respond in 1-2 sentences. Be direct and concise.",
-      explain: "Provide a clear explanation in 2-4 sentences with helpful context.",
-      lore: "Focus on world-building and background information in 2-4 sentences, staying spoiler-safe."
-    };
-
-    const episodeInfo = showInfo?.title && showInfo?.season && showInfo?.episode
-      ? `${showInfo.title} - Season ${showInfo.season}, Episode ${showInfo.episode}${showInfo.timestamp ? ` @ ${showInfo.timestamp}` : ''}`
-      : showInfo?.title || 'Unknown show';
+    const episodeInfo =
+      showInfo?.title && showInfo?.season && showInfo?.episode
+        ? `${showInfo.title} - Season ${showInfo.season}, Episode ${showInfo.episode}${showInfo.timestamp ? ` @ ${showInfo.timestamp}` : ""}`
+        : showInfo?.title || "Unknown show";
 
     const userMessage = `USER'S CONFIRMED PROGRESS: ${episodeInfo}
 
@@ -150,78 +120,69 @@ ${context}
 """
 
 IMPORTANT CLASSIFICATION GUIDANCE:
-- If the question is SAFE_BASICS (character names, basic definitions, main cast), answer confidently using general show knowledge up to ${episodeInfo}. The episode context above is helpful but not required.
+- If the question is about a character name, role, basic ability, or concept already introduced by ${episodeInfo}, classify as SAFE_BASICS and answer confidently.
 - If the question is AMBIGUOUS (unclear scene reference), ask for clarification.
-- If the question is SPOILER_RISK (reveals, backstories, future events), refuse playfully.
+- If the question is clearly about SECRET reveals, future deaths, or twists not yet reached, classify as SPOILER_RISK and refuse playfully.
+- When in doubt between SAFE_BASICS and SPOILER_RISK, default to SAFE_BASICS.
 
-Current response style: ${(style || 'quick').toUpperCase()}
-${styleInstructions[style || 'quick']}
+Current response style: ${(style || "quick").toUpperCase()}
+${styleInstructions[style || "quick"]}
 
 USER'S QUESTION:
 ${question}`;
 
-    // Use Google Generative AI (OpenAI-compatible endpoint, streaming)
-    debugInfo.step = 'calling_google_ai';
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    debugInfo.step = "calling_gemini";
+    const geminiResponse = await fetch(GEMINI_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GOOGLE_AI_API_KEY}`,
+        "x-goog-api-key": GOOGLE_AI_API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.0-flash",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-        stream: true,
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        generationConfig: {},
       }),
     });
-    debugInfo.step = 'lovable_response';
-    debugInfo.responseStatus = response.status;
-    debugInfo.responseOk = response.ok;
-    debugInfo.responseStatusText = response.statusText;
 
-    if (!response.ok) {
-      if (response.status === 429) {
+    debugInfo.step = "gemini_response";
+    debugInfo.geminiStatus = geminiResponse.status;
+
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      debugInfo.step = "gemini_error";
+      debugInfo.geminiError = errorText.substring(0, 500);
+      console.error(`[spoiler-shield-chat] Gemini ${geminiResponse.status}:`, errorText);
+
+      if (geminiResponse.status === 429) {
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later.", debug: debugInfo }),
+          JSON.stringify({
+            error: "Gemini rate limit exceeded (free tier: 15 req/min). Please wait a moment.",
+            detail: errorText.substring(0, 300),
+            debug: debugInfo,
+          }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Service temporarily unavailable.", debug: debugInfo }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const errorText = await response.text();
-      debugInfo.step = 'lovable_error';
-      debugInfo.errorText = errorText.substring(0, 500);
-      console.error("AI gateway error:", response.status, errorText);
       return new Response(
-        JSON.stringify({ 
-          error: "AI gateway error",
-          debug: debugInfo
+        JSON.stringify({
+          error: `Gemini API error (HTTP ${geminiResponse.status})`,
+          detail: errorText.substring(0, 300),
+          debug: debugInfo,
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    return new Response(response.body, {
+    return new Response(geminiResponse.body, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (error) {
-    debugInfo.step = 'catch_block';
+    debugInfo.step = "catch";
     debugInfo.errorMessage = error instanceof Error ? error.message : String(error);
-    debugInfo.errorType = error instanceof Error ? error.constructor.name : typeof error;
-    console.error("Chat function error:", error);
+    console.error("[spoiler-shield-chat] Unexpected error:", error);
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Unknown error",
-        details: error instanceof Error ? error.stack : String(error),
-        debug: debugInfo
-      }),
+      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error", debug: debugInfo }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

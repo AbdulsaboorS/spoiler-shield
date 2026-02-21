@@ -1,11 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+// Self-contained: no shared module import (avoids Deno module cache serving stale bundles).
+const GEMINI_MODEL = "gemini-3-flash-preview";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const AUDIT_PROMPT = `You are a spoiler safety auditor. Review this answer for ANY information beyond the provided context.
+const SYSTEM_PROMPT =
+  "You are a spoiler safety auditor. Review answers and remove any information beyond the provided context. Return only the safe answer.";
+
+const USER_PROMPT_TEMPLATE = `You are a spoiler safety auditor. Review this answer for ANY information beyond the provided context.
 
 EPISODE CONTEXT:
 {context}
@@ -32,18 +39,17 @@ serve(async (req) => {
 
   let originalAnswer = "";
   try {
-    const body = await req.json();
-    const { answer, context, season, episode } = body;
+    const { answer, context, season, episode } = await req.json();
     originalAnswer = answer || "";
 
-    if (!answer || !answer.trim()) {
+    if (!answer?.trim()) {
       return new Response(
         JSON.stringify({ error: "Answer is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!context || !context.trim()) {
+    if (!context?.trim()) {
       return new Response(
         JSON.stringify({ error: "Context is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -55,54 +61,37 @@ serve(async (req) => {
       throw new Error("GOOGLE_AI_API_KEY is not configured");
     }
 
-    const prompt = AUDIT_PROMPT
+    const userMessage = USER_PROMPT_TEMPLATE
       .replace("{context}", context)
       .replace("{season}", String(season || 1))
       .replace("{episode}", String(episode || 1))
       .replace("{answer}", answer);
 
-    // Call LLM for audit (non-streaming, fast)
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    const response = await fetch(GEMINI_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GOOGLE_AI_API_KEY}`,
+        "x-goog-api-key": GOOGLE_AI_API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.0-flash",
-        messages: [
-          {
-            role: "system",
-            content: "You are a spoiler safety auditor. Review answers and remove any information beyond the provided context. Return only the safe answer.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.2, // Low temperature for consistent auditing
-        max_tokens: 1000,
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1000 },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Audit LLM error:", response.status, errorText);
-      // If audit fails, return original answer (don't block user)
+      console.error("[audit-answer] Gemini error:", response.status, errorText);
+      // On failure, return original answer so the user isn't blocked
       return new Response(
-        JSON.stringify({
-          audited: answer,
-          wasModified: false,
-          error: "Audit service unavailable",
-        }),
+        JSON.stringify({ audited: answer, wasModified: false, error: "Audit service unavailable" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const data = await response.json();
-    const auditedAnswer = data.choices?.[0]?.message?.content?.trim() || answer;
-
-    // Check if answer was modified
+    const auditedAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || answer;
     const wasModified = auditedAnswer !== answer && auditedAnswer.length > 0;
 
     return new Response(
@@ -115,8 +104,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Audit answer error:", error);
-    // On error, return original answer (or empty if we couldn't parse)
+    console.error("[audit-answer] error:", error);
     return new Response(
       JSON.stringify({
         audited: originalAnswer,

@@ -14,6 +14,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   style?: 'quick' | 'explain' | 'lore';
+  audited?: boolean;
+  wasModified?: boolean;
 }
 
 export interface SpoilerReport {
