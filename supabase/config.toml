@@ -15,3 +15,6 @@ verify_jwt = false
 
 [functions."sanitize-episode-context"]
 verify_jwt = false
+
+[functions."fetch-web-episode-recap"]
+verify_jwt = false

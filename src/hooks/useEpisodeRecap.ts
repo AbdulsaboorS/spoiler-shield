@@ -132,28 +132,72 @@ export function useEpisodeRecap() {
     showTitle?: string
   ): Promise<RecapResult> => {
     setIsLoading(true);
+
+    // TVMaze cache key (by showId, not showTitle, since showId is always present)
+    const tvmazeCacheKey = `tvmaze_episode_${showId}_s${season}_e${episode}`;
+
     try {
-      // Try TVMaze API for episode summary
+      // Check TVMaze cache first
+      const cachedRaw = localStorage.getItem(tvmazeCacheKey);
+      if (cachedRaw) {
+        try {
+          const cached: CachedEpisode = JSON.parse(cachedRaw);
+          if (Date.now() - cached.cachedAt <= CACHE_TTL) {
+            const result = { summary: cached.summary, source: cached.source };
+            setRecap(result);
+            setIsLoading(false);
+            return result;
+          }
+          localStorage.removeItem(tvmazeCacheKey);
+        } catch {
+          localStorage.removeItem(tvmazeCacheKey);
+        }
+      }
+
+      // Fetch from TVMaze
       const response = await fetch(`https://api.tvmaze.com/shows/${showId}/episodebynumber?season=${season}&number=${episode}`);
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.summary) {
-          // Remove HTML tags from summary
-          const summary = data.summary
+          const rawSummary = data.summary
             .replace(/<[^>]*>/g, '')
             .replace(/&nbsp;/g, ' ')
             .trim();
-          
-          if (summary) {
-            const result = { summary, source: 'tvmaze' as const };
+
+          if (rawSummary) {
+            // Sanitize to strip future spoilers — same pass used by Fandom pipeline
+            let finalSummary = rawSummary;
+            try {
+              const sanitizeResponse = await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sanitize-episode-context`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+                  },
+                  body: JSON.stringify({ rawText: rawSummary, season, episode }),
+                }
+              );
+              if (sanitizeResponse.ok) {
+                const sanitizeData = await sanitizeResponse.json();
+                const sanitized = sanitizeData.sanitized?.trim();
+                if (sanitized) finalSummary = sanitized;
+              }
+            } catch {
+              // Sanitize failed — use raw summary as fallback
+            }
+
+            const result = { summary: finalSummary, source: 'tvmaze' as const };
+            localStorage.setItem(tvmazeCacheKey, JSON.stringify({ summary: finalSummary, source: 'tvmaze', cachedAt: Date.now() }));
             setRecap(result);
             setIsLoading(false);
             return result;
           }
         }
       }
-      
+
       // Fallback to Fandom wiki (if showTitle provided and matches MVP criteria)
       if (showTitle) {
         const fandomResult = await fetchFandomEpisode(showTitle, season, episode);
@@ -163,7 +207,79 @@ export function useEpisodeRecap() {
           return fandomResult;
         }
       }
-      
+
+      // Fallback: web search via Gemini Search Grounding
+      if (showTitle) {
+        const webSearchCacheKey = `websearch_episode_${showTitle.toLowerCase().replace(/\s+/g, '-')}_s${season}_e${episode}`;
+        const webCachedRaw = localStorage.getItem(webSearchCacheKey);
+        if (webCachedRaw) {
+          try {
+            const cached: CachedEpisode = JSON.parse(webCachedRaw);
+            if (Date.now() - cached.cachedAt <= CACHE_TTL) {
+              const result = { summary: cached.summary, source: cached.source };
+              setRecap(result);
+              setIsLoading(false);
+              return result;
+            }
+            localStorage.removeItem(webSearchCacheKey);
+          } catch {
+            localStorage.removeItem(webSearchCacheKey);
+          }
+        }
+
+        try {
+          const webResponse = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-web-episode-recap`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+              },
+              body: JSON.stringify({ showTitle, season, episode }),
+            }
+          );
+
+          if (webResponse.ok) {
+            const webData = await webResponse.json();
+            const rawRecap = webData.recap?.trim();
+
+            if (rawRecap) {
+              // Sanitize to strip any forward spoilers the search may have surfaced
+              let finalRecap = rawRecap;
+              try {
+                const sanitizeResponse = await fetch(
+                  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sanitize-episode-context`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+                    },
+                    body: JSON.stringify({ rawText: rawRecap, season, episode }),
+                  }
+                );
+                if (sanitizeResponse.ok) {
+                  const sanitizeData = await sanitizeResponse.json();
+                  const sanitized = sanitizeData.sanitized?.trim();
+                  if (sanitized) finalRecap = sanitized;
+                }
+              } catch {
+                // Sanitize failed — use raw recap as fallback
+              }
+
+              const webResult = { summary: finalRecap, source: 'websearch' as const };
+              localStorage.setItem(webSearchCacheKey, JSON.stringify({ summary: finalRecap, source: 'websearch', cachedAt: Date.now() }));
+              setRecap(webResult);
+              setIsLoading(false);
+              return webResult;
+            }
+          }
+        } catch {
+          // Web search failed — fall through to no-recap
+        }
+      }
+
       // No recap found
       const result = { summary: null, source: null };
       setRecap(result);

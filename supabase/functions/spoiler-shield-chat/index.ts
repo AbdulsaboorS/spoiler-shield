@@ -107,24 +107,18 @@ serve(async (req) => {
       );
     }
 
-    if (!context?.trim()) {
-      return new Response(
-        JSON.stringify({ error: "Context is required to prevent spoilers", debug: debugInfo }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     const episodeInfo =
       showInfo?.title && showInfo?.season && showInfo?.episode
         ? `${showInfo.title} - Season ${showInfo.season}, Episode ${showInfo.episode}${showInfo.timestamp ? ` @ ${showInfo.timestamp}` : ""}`
         : showInfo?.title || "Unknown show";
 
+    const contextBlock = context?.trim()
+      ? `EPISODE CONTEXT (helpful reference — use for episode-specific details):\n"""\n${context.trim()}\n"""`
+      : `[No episode summary available — rely on general show knowledge up to ${episodeInfo}. Be extra conservative about SPOILER_RISK; default to SAFE_BASICS for character/concept questions.]`;
+
     const userMessage = `USER'S CONFIRMED PROGRESS: ${episodeInfo}
 
-EPISODE CONTEXT (helpful reference, but not required for SAFE_BASICS questions):
-"""
-${context}
-"""
+${contextBlock}
 
 IMPORTANT CLASSIFICATION GUIDANCE:
 - If the question is about a character name, role, basic ability, or concept already introduced by ${episodeInfo}, classify as SAFE_BASICS and answer confidently.

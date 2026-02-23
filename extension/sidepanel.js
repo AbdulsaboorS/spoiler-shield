@@ -13,6 +13,10 @@ const MAX_CONTEXT_CHARS = 2000;
 const frame = document.getElementById("appFrame");
 const refreshBtn = document.getElementById("refreshBtn");
 
+// Dedup: track last-sent show info key so we don't spam the iframe (and logs)
+// on every 3-second poll when nothing has changed.
+let _lastSentShowKey = undefined;
+
 frame.src = WEB_APP_URL;
 
 function clampContext(text) {
@@ -232,6 +236,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 frame.addEventListener("load", () => {
+  // Reset dedup so the freshly-loaded iframe always receives current show info.
+  _lastSentShowKey = undefined;
   refreshContext();
   
   // Send context and show info from storage on load (multiple attempts to ensure delivery)
@@ -262,31 +268,27 @@ async function sendShowInfoToIframe() {
   try {
     const result = await chrome.storage.local.get("spoilershield_show_info");
     const showInfo = result.spoilershield_show_info;
-    
-    console.log('[SpoilerShield] Checking show info in storage:', {
-      hasShowInfo: !!showInfo,
+
+    // Dedup: only send (and log) when data actually changed.
+    const showKey = showInfo
+      ? `${showInfo.showTitle}|${showInfo.platform}|${showInfo.episodeInfo?.season ?? ''}|${showInfo.episodeInfo?.episode ?? ''}`
+      : 'none';
+    if (showKey === _lastSentShowKey) return;
+    _lastSentShowKey = showKey;
+
+    console.log('[SpoilerShield] Show info changed → sending to iframe:', {
       showTitle: showInfo?.showTitle,
       platform: showInfo?.platform,
+      hasEpisodeInfo: !!showInfo?.episodeInfo,
     });
-    
-    if (showInfo && showInfo.showTitle) {
-      console.log('[SpoilerShield] Sending show info to iframe:', {
-        platform: showInfo.platform,
-        showTitle: showInfo.showTitle,
-        hasEpisodeInfo: !!showInfo.episodeInfo,
-        webAppOrigin: webAppOrigin,
-      });
-      
-      frame.contentWindow.postMessage(
-        {
-          type: "SPOILERSHIELD_SHOW_INFO",
-          payload: showInfo,
-        },
-        webAppOrigin
-      );
-    } else {
-      console.log('[SpoilerShield] No show info to send (missing or no showTitle)');
-    }
+
+    frame.contentWindow.postMessage(
+      {
+        type: "SPOILERSHIELD_SHOW_INFO",
+        payload: showInfo || { showTitle: '', platform: 'other' },
+      },
+      webAppOrigin
+    );
   } catch (err) {
     console.error('[SpoilerShield] Error sending show info:', err);
   }
@@ -297,16 +299,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
   
   if (changes.spoilershield_show_info) {
-    const newValue = changes.spoilershield_show_info.newValue;
-    console.log('[SpoilerShield] Show info changed in storage:', {
-      hasNewValue: !!newValue,
-      showTitle: newValue?.showTitle,
-      platform: newValue?.platform,
-    });
-    // Send immediately when storage changes
+    // Storage changed — reset dedup so the new value always gets sent.
+    _lastSentShowKey = undefined;
     sendShowInfoToIframe();
-    // Also send again after a short delay to ensure iframe is ready
-    setTimeout(() => sendShowInfoToIframe(), 100);
   }
 });
 

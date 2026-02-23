@@ -1,93 +1,67 @@
-import { Shield, RefreshCw, ChevronLeft, Edit } from 'lucide-react';
+import { Shield, History } from 'lucide-react';
 import { useSidePanel } from '@/hooks/useSidePanel';
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/StatusBadge';
+import { SessionMeta, InitPhase } from '@/lib/types';
 
-interface HeaderProps {
-  onRefresh?: () => void;
-  onBack?: () => void;
-  onChangeShow?: () => void;
-  onChangeProgress?: () => void;
-  onChangeContext?: () => void;
-  showBack?: boolean;
-  showChangeShow?: boolean;
-  showChangeProgress?: boolean;
-  showChangeContext?: boolean;
+interface StatusBadgePassthroughProps {
+  meta: SessionMeta | null;
+  isDetecting: boolean;
+  phase: InitPhase;
+  onShowChange: (show: { id: number; name: string }) => void;
+  onEpisodeChange: (season: string, episode: string) => void;
+  onContextChange: (context: string) => void;
+  onClearChat: () => void;
+  onRedetect: () => void;
 }
 
-export function Header({ 
-  onRefresh, 
-  onBack,
-  onChangeShow,
-  onChangeProgress,
-  onChangeContext,
-  showBack = false,
-  showChangeShow = false,
-  showChangeProgress = false,
-  showChangeContext = false,
+interface HeaderProps {
+  // Side-panel props
+  statusBadgeProps?: StatusBadgePassthroughProps;
+  onOpenHistory?: () => void;
+  sessionCount?: number;
+  // Web-app props (legacy, unused in side panel)
+  onRefresh?: () => void;
+}
+
+export function Header({
+  statusBadgeProps,
+  onOpenHistory,
+  sessionCount,
 }: HeaderProps) {
   const isSidePanel = useSidePanel();
 
   if (isSidePanel) {
-    // Compact header for side panel with navigation
     return (
       <header className="py-2 px-3 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-1">
-          <h1 className="text-sm font-semibold text-foreground tracking-tight">
+        <div className="flex items-center justify-between gap-2">
+          {/* Brand */}
+          <h1 className="text-sm font-semibold text-foreground tracking-tight shrink-0">
             Spoiler<span className="text-primary">Shield</span>
           </h1>
-          {onRefresh && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRefresh}
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <RefreshCw className="w-3 h-3 mr-1.5" />
-              Refresh
-            </Button>
-          )}
-        </div>
-        {/* Navigation links */}
-        {(showBack || showChangeShow || showChangeProgress || showChangeContext) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {showBack && onBack && (
-              <button
-                onClick={onBack}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+
+          {/* Center/right: badge + history */}
+          <div className="flex items-center gap-1.5">
+            {statusBadgeProps && <StatusBadge {...statusBadgeProps} />}
+
+            {onOpenHistory && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onOpenHistory}
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground relative"
+                aria-label="Chat history"
               >
-                <ChevronLeft className="w-3 h-3" />
-                Back
-              </button>
-            )}
-            {showChangeShow && onChangeShow && (
-              <button
-                onClick={onChangeShow}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                <Edit className="w-3 h-3" />
-                Change show
-              </button>
-            )}
-            {showChangeProgress && onChangeProgress && (
-              <button
-                onClick={onChangeProgress}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                <Edit className="w-3 h-3" />
-                Edit progress
-              </button>
-            )}
-            {showChangeContext && onChangeContext && (
-              <button
-                onClick={onChangeContext}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                <Edit className="w-3 h-3" />
-                Edit context
-              </button>
+                <History className="w-4 h-4" />
+                {sessionCount !== undefined && sessionCount > 1 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-medium">
+                    {sessionCount > 9 ? '9+' : sessionCount}
+                  </span>
+                )}
+              </Button>
             )}
           </div>
-        )}
+        </div>
       </header>
     );
   }

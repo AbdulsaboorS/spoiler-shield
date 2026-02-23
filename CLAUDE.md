@@ -23,19 +23,30 @@ spoiler-shield/
 │   ├── content.js       # Page detection (show title, episode from Crunchyroll/Netflix)
 │   └── sidepanel.js     # Iframe bridge, postMessage, storage listener
 ├── src/
-│   ├── pages/Index.tsx  # Main UI: side panel steps (show → progress → context → qa)
+│   ├── pages/Index.tsx  # Root: branches on isSidePanel → SidePanelApp | WebApp
 │   ├── hooks/
-│   │   ├── useChat.ts   # Chat API call, streaming, message persistence
+│   │   ├── useChat.ts          # Chat API, streaming, storageKey param (session-aware)
+│   │   ├── useSessionStore.ts  # Session CRUD, localStorage, migration from legacy key
+│   │   ├── useInitFlow.ts      # Init state machine: detecting→resolving→ready/needs-episode/no-show
 │   │   ├── useEpisodeRecap.ts  # TVMaze + Fandom recap, sanitize, cache
 │   │   ├── useLocalStorage.ts
 │   │   └── useSidePanel.ts
-│   ├── components/      # Header, ShowSearch, EpisodeSelector, ChatPanel, etc.
-│   │   └── steps/       # ShowStep, ProgressStep, ContextStep, QAStep (side panel steps)
-│   └── lib/types.ts     # WatchSetup, ChatMessage, etc.
+│   ├── components/
+│   │   ├── StatusBadge.tsx     # Badge + Popover (show/episode/context config)
+│   │   ├── HistorySheet.tsx    # Left-side Sheet: session list, switch, delete
+│   │   ├── EpisodePicker.tsx   # Inline episode picker for needs-episode phase
+│   │   ├── ChatStatusBar.tsx   # Status bar between messages and input
+│   │   ├── Header.tsx          # Side-panel: brand + StatusBadge + history icon
+│   │   ├── ShowSearch.tsx      # TVMaze search autocomplete
+│   │   ├── EpisodeSelector.tsx # Season/episode dropdowns
+│   │   └── steps/
+│   │       ├── ContextStep.tsx # Reused inside StatusBadge popover
+│   │       └── QAStep.tsx      # Chat history + input (meta/phase aware)
+│   └── lib/types.ts     # WatchSetup, ChatMessage, SessionMeta, InitPhase, etc.
 ├── supabase/functions/
-│   ├── spoiler-shield-chat/   # Main Q&A endpoint (Lovable AI Gateway, streaming)
+│   ├── spoiler-shield-chat/   # Main Q&A endpoint (streaming)
 │   ├── sanitize-episode-context/
-│   ├── audit-answer/          # Second-pass audit (client has it disabled)
+│   ├── audit-answer/          # Second-pass audit (disabled, not yet deployed)
 │   ├── fetch-fandom-episode/
 │   └── log-spoiler-report/
 ├── PROJECT_CONTEXT.md   # Single source of truth (product, architecture, changelog)
@@ -51,7 +62,7 @@ spoiler-shield/
 - **Deployed:** Backend is Supabase Edge Functions (project ref `dbileyqtnisyqzgwwive`). Frontend hosted on Lovable; local dev via `npm run dev`.
 - **LLM:** All LLM calls use **Google Generative AI native API** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-3-flash-preview`). All 3 functions are self-contained (no shared module import — avoids Deno cache issues). Auth via `x-goog-api-key` header only.
 - **Chat:** Working end-to-end. Q&A streams correctly. `useChat.ts` parses `candidates[0].content.parts[0].text`.
-- **Frontend:** `Index.tsx` refactored from 1025 → 664 lines. Step logic extracted into `src/components/steps/` (ShowStep, ProgressStep, ContextStep, QAStep). React hooks violation (useCallback inside conditional) is fixed.
+- **UX:** **Chat-first side panel implemented (2026-02-21).** Wizard replaced with session-oriented chat. See Section 2 for new file layout.
 - **Audit pass:** Still disabled in `useChat.ts` — re-enable after chat is confirmed stable.
 
 ---
@@ -92,16 +103,17 @@ No active bugs. All previously known issues are resolved.
 | 404 on OpenAI-compatible endpoint | Fixed 2026-02-19 (native Gemini API) |
 | `gemini-2.0-flash` not available for API key | Fixed 2026-02-21 (switched to `gemini-3-flash-preview`) |
 | React hooks violation in Index.tsx | Fixed 2026-02-21 (useCallbacks moved above conditional) |
+| 4-step wizard friction | Fixed 2026-02-21 (chat-first UX rewrite) |
 
 ---
 
 ## 7. Upcoming Work (Prioritized)
 
-1. **UI/UX improvements** – Owner has improvements in mind; to be discussed next session.
-2. **Re-enable audit pass** – Wire `audit-answer` in `useChat.ts` after streaming; show "Safety edit applied" when answer is modified.
-3. **Clear chat UI** – Side panel button to clear conversation (hook `clearChat` exists; needs UI).
-4. **Broader show coverage** – Fandom beyond Jujutsu Kaisen S1; multi-season.
-5. **Detection robustness** – More reliable DOM/URL detection across Crunchyroll/Netflix updates.
+1. **Re-enable audit pass** – Wire `audit-answer` in `useChat.ts` after streaming; show "Safety edit applied" when answer is modified.
+2. **Broader show coverage** – Fandom beyond Jujutsu Kaisen S1; multi-season.
+3. **Detection robustness** – More reliable DOM/URL detection across Crunchyroll/Netflix updates.
+4. **Polish StatusBadge popover** – Show names truncate at 18 chars in badge; full name visible in popover.
+5. **`needs-episode` with no showId** – If TVMaze lookup fails entirely, EpisodePicker can't render (requires showId). Fallback: show manual season/episode text inputs.
 
 ---
 
@@ -137,4 +149,4 @@ supabase functions deploy log-spoiler-report
 
 ---
 
-*Last updated: 2026-02-21.*
+*Last updated: 2026-02-21 (chat-first UX implemented).*

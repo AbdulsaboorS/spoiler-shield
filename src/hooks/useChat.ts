@@ -1,25 +1,67 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChatMessage, ResponseStyle, RefinementOption, WatchSetup } from '@/lib/types';
-import { useLocalStorage } from './useLocalStorage';
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/spoiler-shield-chat`;
 
-export function useChat() {
-  const [messages, setMessages] = useLocalStorage<ChatMessage[]>('spoilershield-chat', []);
+export function useChat(storageKey = 'spoilershield-chat') {
+  const storageKeyRef = useRef(storageKey);
+
+  const [messages, setMessagesState] = useState<ChatMessage[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Re-initialize when storageKey changes (e.g. switching sessions)
+  useEffect(() => {
+    if (storageKeyRef.current !== storageKey) {
+      storageKeyRef.current = storageKey;
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        setMessagesState(raw ? JSON.parse(raw) : []);
+      } catch {
+        setMessagesState([]);
+      }
+    }
+  }, [storageKey]);
+
+  // Listen for external writes to this key (e.g. message imports from another session)
+  useEffect(() => {
+    const onUpdate = (e: CustomEvent<{ key: string }>) => {
+      if (e.detail.key === storageKey) {
+        try {
+          const raw = window.localStorage.getItem(storageKey);
+          setMessagesState(raw ? JSON.parse(raw) : []);
+        } catch {
+          setMessagesState([]);
+        }
+      }
+    };
+    window.addEventListener('spoilershield-messages-updated', onUpdate as EventListener);
+    return () => window.removeEventListener('spoilershield-messages-updated', onUpdate as EventListener);
+  }, [storageKey]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
+  const setMessages = useCallback((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    setMessagesState(prev => {
+      const next = value instanceof Function ? value(prev) : value;
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [storageKey]);
 
   const sendMessage = useCallback(async (
     question: string,
     watchSetup: WatchSetup,
     style: ResponseStyle
   ) => {
-    if (!watchSetup.context.trim()) {
-      setError('Please provide context from what you\'ve watched.');
-      return;
-    }
-
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -28,9 +70,8 @@ export function useChat() {
       style
     };
 
-    // Store user message ID to ensure it's preserved
     const userMessageId = userMessage.id;
-    
+
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setError(null);
@@ -63,7 +104,6 @@ export function useChat() {
         try {
           const errBody = await response.json();
           if (errBody.error) errMsg = errBody.error;
-          // Log full detail to console so DevTools shows the real Gemini error
           console.error('[SpoilerShield] API error:', {
             status: response.status,
             error: errBody.error,
@@ -87,16 +127,15 @@ export function useChat() {
       const updateAssistantMessage = (content: string) => {
         assistantContent = content;
         setMessages(prev => {
-          // Ensure user message is preserved - if missing, add it back
           let messagesWithUser = prev;
           const hasUserMessage = prev.some(m => m.id === userMessageId);
           if (!hasUserMessage) {
             messagesWithUser = [...prev, userMessage];
           }
-          
+
           const last = messagesWithUser[messagesWithUser.length - 1];
           if (last?.role === 'assistant') {
-            return messagesWithUser.map((m, i) => 
+            return messagesWithUser.map((m, i) =>
               i === messagesWithUser.length - 1 ? { ...m, content } : m
             );
           }
@@ -158,25 +197,18 @@ export function useChat() {
         }
       }
 
-      // Audit pass disabled for MVP - endpoint not deployed yet
-      // TODO: Re-enable when audit-answer endpoint is deployed
-      // The original answer is already displayed, so no action needed
       if (assistantContent.trim()) {
-        // Ensure message is persisted - verify it exists AND preserve user message
         setMessages(prev => {
-          // CRITICAL: Ensure user message is preserved
           let messagesWithUser = prev;
           const hasUserMessage = prev.some(m => m.id === userMessageId);
           if (!hasUserMessage && userMessageId) {
             messagesWithUser = [...prev, userMessage];
           }
-          
+
           const last = messagesWithUser[messagesWithUser.length - 1];
-          // If last message is assistant and has content, ensure it's preserved
           if (last?.role === 'assistant' && last.content.trim()) {
-            return messagesWithUser; // Return with user message preserved
+            return messagesWithUser;
           }
-          // If somehow missing, add it back (shouldn't happen, but safety check)
           if (assistantContent.trim()) {
             return [...messagesWithUser, {
               id: crypto.randomUUID(),
@@ -186,35 +218,30 @@ export function useChat() {
               style
             }];
           }
-          return messagesWithUser; // Always return with user message preserved
+          return messagesWithUser;
         });
       }
 
     } catch (err) {
-      // If we have partial content, preserve it even on error
       if (assistantContent.trim()) {
         setMessages(prev => {
-          // CRITICAL: Ensure user message is preserved
           let messagesWithUser = prev;
           const hasUserMessage = prev.some(m => m.id === userMessageId);
           if (!hasUserMessage && userMessageId) {
             messagesWithUser = [...prev, userMessage];
           }
-          
+
           const last = messagesWithUser[messagesWithUser.length - 1];
-          // Ensure assistant message exists with content
           if (last?.role === 'assistant') {
-            // Update existing message if content is missing or shorter
             if (!last.content || last.content.length < assistantContent.length) {
-              return messagesWithUser.map((m, i) => 
-                i === messagesWithUser.length - 1 
+              return messagesWithUser.map((m, i) =>
+                i === messagesWithUser.length - 1
                   ? { ...m, content: assistantContent }
                   : m
               );
             }
             return messagesWithUser;
           }
-          // Add message if missing
           return [...messagesWithUser, {
             id: crypto.randomUUID(),
             role: 'assistant' as const,
@@ -224,7 +251,7 @@ export function useChat() {
           }];
         });
       }
-      
+
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsLoading(false);
@@ -237,7 +264,7 @@ export function useChat() {
   ) => {
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
-    
+
     if (!lastAssistant || !lastUser) return;
 
     const refinementPrompts: Record<RefinementOption, string> = {

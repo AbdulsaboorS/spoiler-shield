@@ -13,8 +13,7 @@ console.log("[SpoilerShield] User Agent:", navigator.userAgent.substring(0, 50))
 (async function debugHeartbeat() {
   console.log("[SpoilerShield] ✅ content.js LOADED AND RUNNING");
   console.log("[SpoilerShield] Hostname:", location.hostname);
-  console.log("[SpoilerShield] Platform detected:", state.platform);
-  
+
   try {
     await chrome.storage.local.set({
       spoilershield_debug: {
@@ -129,6 +128,34 @@ function getTitle() {
   return normalizeLine(meta || document.title || "");
 }
 
+// Parse season+episode from a text string. Returns {season, episode} or null.
+function parseEpisodeText(text) {
+  if (!text) return null;
+  // "S1E4", "S1 E4"
+  let m = text.match(/S(\d+)\s*E(\d+)/i);
+  if (m) return { season: m[1], episode: m[2] };
+  // "Season 1, Episode 4" / "Season 1 Episode 4"
+  m = text.match(/Season\s+(\d+)[,\s]+Episode\s+(\d+)/i);
+  if (m) return { season: m[1], episode: m[2] };
+  // "Episode 4" alone → default season 1
+  m = text.match(/Episode\s+(\d+)/i);
+  if (m) return { season: '1', episode: m[1] };
+  // "Ep. 4" / "Ep 4"
+  m = text.match(/Ep\.?\s*(\d+)/i);
+  if (m) return { season: '1', episode: m[1] };
+  return null;
+}
+
+// Convert a URL slug to a title-cased string.
+// e.g. "attack-on-titan" → "Attack On Titan"
+function slugToTitle(slug) {
+  return (slug || '')
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+    .trim();
+}
+
 // Extract show info from page (no subtitle parsing)
 function detectShowInfo() {
   const platform = state.platform;
@@ -136,93 +163,128 @@ function detectShowInfo() {
   let episodeInfo = null;
 
   if (platform === 'crunchyroll') {
-    // Crunchyroll: Try multiple selectors for show title
-    // Method 1: Look for series title in common locations
-    const seriesTitleEl = document.querySelector('[class*="series-title"]') ||
-                          document.querySelector('[class*="show-title"]') ||
-                          document.querySelector('a[href*="/series/"]') ||
-                          document.querySelector('[data-testid="series-title"]');
-    
-    if (seriesTitleEl) {
-      showTitle = normalizeLine(seriesTitleEl.textContent || seriesTitleEl.innerText || '');
+    // Method 1: JSON-LD structured data (most reliable when present)
+    try {
+      const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (const script of ldScripts) {
+        const data = JSON.parse(script.textContent || '{}');
+        const items = Array.isArray(data) ? data : [data];
+        for (const item of items) {
+          if (item['@type'] === 'TVEpisode' || item['@type'] === 'Episode') {
+            showTitle = showTitle ||
+              item.partOfSeries?.name ||
+              item.partOfSeason?.partOfSeries?.name || '';
+            const ep = item.episodeNumber;
+            const season = item.partOfSeason?.seasonNumber || 1;
+            if (ep && !episodeInfo) {
+              episodeInfo = { season: String(season), episode: String(ep) };
+            }
+          } else if (item['@type'] === 'TVSeries') {
+            showTitle = showTitle || item.name || '';
+          }
+        }
+        if (showTitle) {
+          log('[detect] Method 1 (JSON-LD):', showTitle);
+          break;
+        }
+      }
+    } catch {}
+
+    // Method 2: Current URL slug — the most authoritative signal for what page we're on.
+    // Series page: /series/<id>/attack-on-titan → "Attack On Titan"
+    // Episode page: /watch/<id>/episode-title (no series slug here, falls through)
+    if (!showTitle) {
+      const seriesUrlMatch = location.pathname.match(/\/series\/[^/]+\/([^/?#]+)/);
+      if (seriesUrlMatch) {
+        showTitle = slugToTitle(seriesUrlMatch[1]);
+        log('[detect] Method 2 (URL slug):', showTitle);
+      }
     }
 
-    // Method 2: Extract from page title (format: "Show Name - Episode Title | Crunchyroll")
+    // Method 3: og:url canonical — Crunchyroll often sets this to the series URL
+    // even when viewing an individual episode page.
+    if (!showTitle) {
+      const ogUrl = document.querySelector('meta[property="og:url"]')?.getAttribute('content') || '';
+      const ogSeriesMatch = ogUrl.match(/\/series\/[^/]+\/([^/?#]+)/);
+      if (ogSeriesMatch) {
+        showTitle = slugToTitle(ogSeriesMatch[1]);
+        log('[detect] Method 3 (og:url):', showTitle, '| og:url was:', ogUrl);
+      }
+    }
+
+    // Method 4: Page title — Crunchyroll uses "Episode Title | Show Name | Crunchyroll"
+    // Split on "|" and find the show name segment (last non-"Crunchyroll" part).
     if (!showTitle) {
       const pageTitle = document.title || '';
-      // Remove "| Crunchyroll" suffix
-      let cleanTitle = pageTitle.replace(/\s*\|\s*Crunchyroll.*$/i, '').trim();
-      // Split on common separators and take first part (show name)
-      showTitle = cleanTitle.split(/[–—\-]/)[0].trim();
+      const parts = pageTitle.split('|').map(p => p.trim()).filter(Boolean);
+      const nonCR = parts.filter(p => !/^crunchyroll$/i.test(p));
+      if (nonCR.length >= 2) {
+        // "Episode Title | Show Name" → take the last part
+        showTitle = nonCR[nonCR.length - 1];
+        log('[detect] Method 4 (page title pipe):', showTitle, '| title was:', pageTitle);
+      } else if (nonCR.length === 1) {
+        // "Show Name - Season N - ..." → take the first dash-segment
+        showTitle = nonCR[0].split(/[–—\-]/)[0].trim();
+        log('[detect] Method 4 (page title single):', showTitle, '| title was:', pageTitle);
+      }
     }
 
-    // Method 3: Try meta tags
+    // Method 5: OG tag fallback
     if (!showTitle) {
       const ogTitle = document.querySelector('meta[property="og:title"]');
-      if (ogTitle) {
-        const ogContent = ogTitle.getAttribute('content') || '';
-        showTitle = ogContent.split(/[–—\-|]/)[0].trim();
+      const content = ogTitle?.getAttribute('content') || '';
+      if (content) {
+        const parts = content.split('|').map(p => p.trim()).filter(Boolean);
+        const nonCR = parts.filter(p => !/^crunchyroll$/i.test(p));
+        showTitle = (nonCR.length >= 2 ? nonCR[nonCR.length - 1] : nonCR[0] || '');
+        if (!showTitle) showTitle = content.split(/[–—\-|]/)[0].trim();
+        if (showTitle) log('[detect] Method 5 (og:title):', showTitle, '| og:title was:', content);
       }
     }
 
-    // Try to find episode info from URL or page elements
-    const episodeEl = document.querySelector('[class*="episode-number"]') ||
-                      document.querySelector('[class*="episode-title"]') ||
-                      document.querySelector('[data-testid="episode"]');
-    
-    if (episodeEl) {
-      const episodeText = (episodeEl.textContent || '').trim();
-      // Look for "S1 E5" or "Season 1, Episode 5" patterns
-      const epMatch = episodeText.match(/S(\d+)\s*E(\d+)/i) || 
-                      episodeText.match(/Season\s+(\d+).*Episode\s+(\d+)/i) ||
-                      episodeText.match(/Episode\s+(\d+)/i);
-      if (epMatch) {
-        episodeInfo = {
-          season: epMatch[1] || '1',
-          episode: epMatch[2] || epMatch[1] || '',
-        };
-      }
+    // Strip common page-title cruft from show name
+    showTitle = showTitle
+      .replace(/^Watch\s+/i, '')
+      .replace(/\s+Season\s+\d+$/i, '')
+      .replace(/\s+S\d+\s*E\d+.*/i, '')
+      .trim();
+
+    // Episode info from full page title (if not found yet)
+    if (!episodeInfo) {
+      episodeInfo = parseEpisodeText(document.title || '');
     }
 
-    // Fallback: Use getTitle() helper
-    if (!showTitle) {
-      showTitle = getTitle();
+    // Episode info from URL slug: /episode-4- or /s1-e4
+    if (!episodeInfo) {
+      const path = location.pathname;
+      const m = path.match(/\/episode-(\d+)-/i) || path.match(/[/_-]s(\d+)[_-]e(\d+)/i);
+      if (m) episodeInfo = { season: m[2] ? m[1] : '1', episode: m[2] || m[1] };
     }
+
   } else if (platform === 'netflix') {
-    // Netflix: Try to extract from page
     // Method 1: Video title element
     const titleEl = document.querySelector('[data-uia="video-title"]') ||
                     document.querySelector('[class*="video-title"]') ||
                     document.querySelector('h1[class*="title"]');
-    
     if (titleEl) {
       showTitle = normalizeLine(titleEl.textContent || titleEl.innerText || '');
     }
 
-    // Method 2: Page title
+    // Method 2: Page title  "Show Name - Netflix"
     if (!showTitle) {
-      const pageTitle = document.title || '';
-      showTitle = pageTitle.replace(/\s*-\s*Netflix.*$/i, '').trim();
+      showTitle = (document.title || '').replace(/\s*-\s*Netflix.*$/i, '').trim();
     }
 
-    // Try to find episode info
-    const episodeEl = document.querySelector('[data-uia="episode-title"]') ||
-                      document.querySelector('[class*="episode-title"]');
-    if (episodeEl) {
-      const episodeText = (episodeEl.textContent || '').trim();
-      const epMatch = episodeText.match(/S(\d+)\s*E(\d+)/i) || 
-                      episodeText.match(/Episode\s+(\d+)/i);
-      if (epMatch) {
-        episodeInfo = {
-          season: epMatch[1] || '1',
-          episode: epMatch[2] || epMatch[1] || '',
-        };
-      }
+    // Episode info from player elements
+    if (!episodeInfo) {
+      const epEl = document.querySelector('[data-uia="episode-title"]') ||
+                   document.querySelector('[class*="episode-title"]');
+      if (epEl) episodeInfo = parseEpisodeText(epEl.textContent || '');
     }
 
-    // Fallback: Use getTitle() helper
-    if (!showTitle) {
-      showTitle = getTitle();
+    // Fallback: page title
+    if (!episodeInfo) {
+      episodeInfo = parseEpisodeText(document.title || '');
     }
   }
 
@@ -238,20 +300,16 @@ function detectShowInfo() {
 // Store detected show info
 async function storeShowInfo() {
   const showInfo = detectShowInfo();
-  
-  if (showInfo.showTitle) {
-    try {
-      await chrome.storage.local.set({
-        spoilershield_show_info: showInfo,
-      });
-      
-      if (DEV_LOGGING) {
-        log("stored show info:", showInfo);
-      }
-    } catch (err) {
-      if (DEV_LOGGING) {
-        log("storage error:", err);
-      }
+  try {
+    await chrome.storage.local.set({
+      spoilershield_show_info: showInfo,
+    });
+    if (DEV_LOGGING) {
+      log("stored show info:", showInfo);
+    }
+  } catch (err) {
+    if (DEV_LOGGING) {
+      log("storage error:", err);
     }
   }
 }
@@ -261,9 +319,15 @@ async function storeShowInfo() {
   // Initial detection
   storeShowInfo();
 
-  // Re-detect when page content changes (for SPA navigation)
+  // Re-detect when page content changes (for SPA navigation).
+  // Debounced to avoid flooding storage on every subtitle DOM mutation.
+  let debounceTimer = null;
   const observer = new MutationObserver(() => {
-    storeShowInfo();
+    if (debounceTimer) return;
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      storeShowInfo();
+    }, 500);
   });
 
   observer.observe(document.body, {

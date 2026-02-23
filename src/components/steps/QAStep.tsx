@@ -2,8 +2,9 @@ import { type RefObject } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StylePills } from '@/components/StylePills';
+import { ChatStatusBar } from '@/components/ChatStatusBar';
 import { Loader2 } from 'lucide-react';
-import { ChatMessage, ResponseStyle } from '@/lib/types';
+import { ChatMessage, ResponseStyle, SessionMeta, InitPhase } from '@/lib/types';
 
 interface QAStepProps {
   messages: ChatMessage[];
@@ -12,12 +13,18 @@ interface QAStepProps {
   question: string;
   style: ResponseStyle;
   hasAnswer: boolean;
-  context: string;
+  // New props for chat-first UX
+  meta?: SessionMeta | null;
+  isLoadingRecap?: boolean;
+  phase?: InitPhase;
+  // Legacy prop kept for web-app path (optional)
+  context?: string;
   qaHistoryRef: RefObject<HTMLDivElement>;
   onQuestionChange: (q: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   onStyleSelect: (style: ResponseStyle) => void;
-  onEditContext: () => void;
+  // Kept optional for backward-compat (web-app path)
+  onEditContext?: () => void;
 }
 
 export function QAStep({
@@ -27,6 +34,9 @@ export function QAStep({
   question,
   style,
   hasAnswer,
+  meta,
+  isLoadingRecap = false,
+  phase,
   context,
   qaHistoryRef,
   onQuestionChange,
@@ -34,7 +44,13 @@ export function QAStep({
   onStyleSelect,
   onEditContext,
 }: QAStepProps) {
-  if (!context || !context.trim()) {
+  // Determine effective context (prefer meta.context for side-panel, fall back to prop)
+  const effectiveContext = meta?.context ?? context ?? '';
+  const isContextMissing = !effectiveContext.trim();
+  const isInputDisabled = isLoading || isLoadingRecap;
+
+  // Legacy web-app path: show "Context Required" card
+  if (isContextMissing && onEditContext && !meta) {
     return (
       <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4 space-y-3">
         <div className="text-sm font-medium text-destructive">Context Required</div>
@@ -47,6 +63,10 @@ export function QAStep({
       </div>
     );
   }
+
+  const placeholder = meta?.showTitle
+    ? `Ask about ${meta.showTitle}…`
+    : 'Ask a question…';
 
   return (
     <div className="space-y-3">
@@ -94,6 +114,15 @@ export function QAStep({
         )}
       </div>
 
+      {/* Status bar (side-panel path) */}
+      {meta !== undefined && (
+        <ChatStatusBar
+          meta={meta ?? null}
+          isLoadingRecap={isLoadingRecap}
+          phase={phase ?? 'ready'}
+        />
+      )}
+
       {/* Style chips */}
       {hasAnswer && (
         <div className="flex justify-start">
@@ -107,14 +136,14 @@ export function QAStep({
           <Input
             value={question}
             onChange={(e) => onQuestionChange(e.target.value)}
-            placeholder="Ask a question…"
-            disabled={isLoading || !context.trim()}
+            placeholder={placeholder}
+            disabled={isInputDisabled}
             className="flex-1 bg-input border-border input-glow text-sm h-9"
           />
           <Button
             type="submit"
             size="sm"
-            disabled={isLoading || !question.trim() || !context.trim()}
+            disabled={isInputDisabled || !question.trim()}
             className="bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-3"
           >
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Send'}
