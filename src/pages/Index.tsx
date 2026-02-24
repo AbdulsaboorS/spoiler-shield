@@ -14,6 +14,56 @@ import { WatchSetup, ResponseStyle, RefinementOption } from '@/lib/types';
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
+function ManualEpisodeEntry({
+  showTitle,
+  onConfirm,
+}: {
+  showTitle: string;
+  onConfirm: (season: string, episode: string) => void;
+}) {
+  const [season, setSeason] = useState('1');
+  const [episode, setEpisode] = useState('1');
+  return (
+    <div className="flex flex-col gap-4 py-8 px-2">
+      <div className="text-center">
+        <p className="text-sm font-medium text-foreground">
+          {showTitle ? `Which episode of ${showTitle}?` : 'Which episode are you watching?'}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">Couldn't auto-detect — enter it manually.</p>
+      </div>
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground mb-1 block">Season</label>
+          <input
+            type="number"
+            min="1"
+            value={season}
+            onChange={(e) => setSeason(e.target.value)}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground mb-1 block">Episode</label>
+          <input
+            type="number"
+            min="1"
+            value={episode}
+            onChange={(e) => setEpisode(e.target.value)}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+      </div>
+      <button
+        onClick={() => onConfirm(season, episode)}
+        disabled={!season || !episode}
+        className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+      >
+        Start Chat
+      </button>
+    </div>
+  );
+}
+
 const defaultSetup: WatchSetup = {
   platform: 'other',
   showTitle: '',
@@ -165,12 +215,22 @@ function SidePanelApp() {
             </div>
           )}
 
-          {/* Show detected but no episode */}
+          {/* Show detected but no episode — TVMaze matched */}
           {phase === 'needs-episode' && meta && meta.showId && (
             <EpisodePicker
               show={{ id: meta.showId, name: meta.showTitle }}
               initialSeason={meta.season}
               onConfirm={handleEpisodePickerConfirm}
+            />
+          )}
+
+          {/* Show detected but no episode — TVMaze lookup failed, show manual inputs */}
+          {phase === 'needs-episode' && meta && !meta.showId && (
+            <ManualEpisodeEntry
+              showTitle={meta.showTitle}
+              onConfirm={(season, episode) =>
+                confirmManualSetup(meta.showTitle, undefined, meta.platform, season, episode)
+              }
             />
           )}
 
