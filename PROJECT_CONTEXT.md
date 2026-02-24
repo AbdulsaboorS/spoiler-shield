@@ -1,10 +1,10 @@
 # SpoilerShield – Project Context & Technical PRD
 
-> **Last updated:** 2026‑02‑15  
-> **Owner:** Abdul (primary) – intended to be readable by any AI coding agent or human collaborator.  
+> **Last updated:** 2026‑02‑23
+> **Owner:** Abdul (primary) – intended to be readable by any AI coding agent or human collaborator.
 > **Agent handoff:** See **CLAUDE.md** for quick orientation, current bugs, and handoff checklist.
 
-This file is the **single source of truth** for SpoilerShield’s product intent, architecture, and current implementation state.  
+This file is the **single source of truth** for SpoilerShield's product intent, architecture, and current implementation state.
 Every time you land a meaningful change (feature or bugfix), add a short note to **Section 7 – Change Log**.
 
 ---
@@ -13,36 +13,28 @@ Every time you land a meaningful change (feature or bugfix), add a short note to
 
 ### 1.1 Core Idea
 
-SpoilerShield is a **Chrome side-panel companion** for anime / TV streaming sites (MVP: **Crunchyroll, Jujutsu Kaisen S1**).  
+SpoilerShield is a **Chrome side-panel companion** for anime / TV streaming sites (Crunchyroll + Netflix).
 While the user is watching, they can:
 
-- Confirm **what episode they’re on** and a short **episode recap/context**
 - Ask **spoiler-safe questions** about the show or current scene
 - Get answers that are:
-  - **Helpful** (clear explanations)
+  - **Helpful** (clear explanations, real episode detail)
   - **Spoiler-safe** (no future reveals)
-  - **Fast enough** for real-time “watching with a friend”
+  - **Fast enough** for real-time "watching with a friend"
 
 The assistant should feel like a **smart friend watching with you**, not a compliance bot.
 
-### 1.2 Primary User Flow (Side Panel MVP)
+### 1.2 Primary User Flow (Side Panel)
 
-1. User is watching on Crunchyroll (Netflix later).
-2. They open the **SpoilerShield side panel**.
-3. Extension **auto-detects**:
-   - Platform (`crunchyroll` / `netflix` / `other`)
-   - Show title (best-effort)
-   - Season / Episode (best-effort) if the site exposes it
-4. Side panel shows a **Detected** card:
-   - Shows: title, platform, and maybe `SxEy`
-   - Buttons: **Confirm** and **Change**
-5. After confirming / manually selecting show:
-   - User selects **Season / Episode / Timestamp**
-   - App auto-fetches episode **recap/context**
-6. User confirms progress → moves into **Q&A mode**:
-   - Scrollable **conversation history**
-   - Text input to ask questions
-   - Choices for answer **style** (quick / explain / lore)
+1. User is watching on Crunchyroll or Netflix.
+2. They open the **SpoilerShield side panel** by clicking the extension icon.
+3. Extension **auto-detects** show title, platform, and episode (best-effort from DOM + URL).
+4. A session is created for that show + episode. The panel opens directly to **chat**.
+5. Episode recap is auto-fetched in the background (TVMaze → Fandom → Web Search fallback chain).
+6. User asks questions — answers stream back instantly, constrained to their confirmed progress.
+7. Session history is preserved per show+episode and accessible via the history drawer.
+
+No wizard, no confirmation steps. The panel opens to chat.
 
 ---
 
@@ -50,153 +42,130 @@ The assistant should feel like a **smart friend watching with you**, not a compl
 
 ### 2.1 Components
 
-- **Chrome Extension**
-  - `extension/content.js` – runs in page, detects show info
-  - `extension/sidepanel.js` – manages the side panel iframe and `postMessage` bridge to React app
+- **Chrome Extension (MV3)**
+  - `extension/background.js` – service worker; opens side panel, programmatically injects `content.js` into matching tabs when needed (covers extension reloads and already-open tabs)
+  - `extension/content.js` – runs in page; detects show title + episode from DOM/URL/JSON-LD; stores in `chrome.storage.local`; responds to `GET_CONTEXT` and `REDETECT_SHOW_INFO` messages
+  - `extension/sidepanel.js` – iframe bridge; forwards `chrome.storage` changes into the React app via `postMessage`
+
 - **React Web App / Side Panel UI**
-  - Entry: `src/pages/Index.tsx`
-  - Shared components: `Header`, `ShowSearch`, `EpisodeSelector`, `ProgressConfirmation`, `ChatPanel`, etc.
-  - Hooks: `useChat`, `useEpisodeRecap`, `useLocalStorage`, `useSidePanel`
-- **Supabase Edge Functions** (Deno)
-  - `spoiler-shield-chat` – main chat endpoint (Gemini 2.5 Flash, streaming)
-  - `fetch-fandom-episode` – fetch + DOM-parse Fandom HTML to get Summary/Plot
-  - `sanitize-episode-context` – LLM pass to sanitize recap (remove hindsight / future spoilers)
-  - `audit-answer` – optional second-pass spoiler audit on the final answer (currently disabled in client)
-  - `log-spoiler-report` – logs “felt spoilery” reports (MVP: console/log only)
+  - Entry: `src/pages/Index.tsx` — branches on `isSidePanel` → `SidePanelApp` | `WebApp`
+  - Key components: `Header`, `StatusBadge`, `HistorySheet`, `ChatStatusBar`, `EpisodePicker`, `QAStep`
+  - Key hooks: `useChat`, `useSessionStore`, `useInitFlow`, `useEpisodeRecap`, `useSidePanel`
+
+- **Supabase Edge Functions** (Deno, all `verify_jwt = false`)
+  - `spoiler-shield-chat` – main Q&A endpoint; streaming SSE; Gemini native API
+  - `fetch-web-episode-recap` – Gemini + Google Search Grounding; returns a raw episode recap for any show
+  - `fetch-fandom-episode` – fetches + DOM-parses Jujutsu Kaisen Fandom wiki pages
+  - `sanitize-episode-context` – LLM pass to strip future spoilers / hindsight from any raw recap text
+  - `audit-answer` – second-pass spoiler audit on completed answers (deployed but **not yet wired into client**)
+  - `log-spoiler-report` – logs "felt spoilery" reports (console only for now)
+
 - **External APIs**
-  - **TVMaze** – show search + episode summaries
-  - **Fandom wiki** – manually constructed episode URLs for Jujutsu Kaisen S1
-  - **Google Generative AI** – chat + sanitization + audit (OpenAI-compatible endpoint, model: `gemini-2.0-flash`; key: `GOOGLE_AI_API_KEY` Supabase secret)
+  - **TVMaze** – show search + episode summaries (free, no key)
+  - **Fandom wiki** – Jujutsu Kaisen S1 episode pages (hardcoded URL patterns)
+  - **Google Generative AI** – all LLM calls via native Gemini API (`GOOGLE_AI_API_KEY` Supabase secret)
+    - Chat + audit: `gemini-3-flash-preview` (streaming)
+    - Web search recap + sanitization: `gemini-2.0-flash` (non-streaming; Search Grounding supported)
 
 ### 2.2 Data Flow (Side Panel Q&A)
 
-1. **Detection**
-   - `content.js` inspects DOM + URL → builds `showInfo`:
-     - `platform`, `showTitle`, optional `episodeInfo` (`season`, `episode`), `url`, `detectedAt`
-   - Stores in `chrome.storage.local` under `spoilershield_show_info`.
-   - `sidepanel.js` listens to `chrome.storage.onChanged` and forwards latest info into the iframe via `postMessage` (`SPOILERSHIELD_SHOW_INFO`).
+**1. Detection**
+- `background.js` calls `ensureContentScript(tabId, url)` on icon click and on `tabs.onUpdated` (status=complete). This probes with `GET_CONTEXT`; if content.js isn't running, it programmatically injects it via `chrome.scripting.executeScript`.
+- `content.js` inspects DOM + URL → stores `spoilershield_show_info` in `chrome.storage.local`.
+- `sidepanel.js` listens to `chrome.storage.onChanged` → `postMessage` into iframe as `SPOILERSHIELD_SHOW_INFO`.
 
-2. **React App (Index.tsx)**
-   - Listens for `window.message` events of type `SPOILERSHIELD_SHOW_INFO`.
-   - Maintains state:
-     - `detectedShowInfo`
-     - `selectedShow` (TVMaze show)
-     - `watchSetup` (`platform`, `showTitle`, `showId`, `season`, `episode`, `timestamp`, `context`)
-     - `currentStep` (`show` | `progress` | `context` | `qa`)
-   - Uses **refs + guards** to avoid:
-     - Infinite loops
-     - Progress bleeding between shows
-     - Detection flakiness
+**2. Session Init (`useInitFlow`)**
+- Listens for `SPOILERSHIELD_SHOW_INFO` messages; deduplicates by show+episode key.
+- On new show+episode: calls TVMaze to resolve showId → calls `useSessionStore.loadOrCreateSession`.
+- New sessions start with `confirmed: false` — they are not shown in history until the user sends a message.
+- Once session exists, fetches episode recap (see below) and sets phase to `ready`.
 
-3. **Episode Recap**
-   - When show + season + episode are set:
-     - `useEpisodeRecap.fetchRecap(showId, season, episode, showTitle?)` is called once per episode (guarded via `lastRecapKey`).
-   - This:
-     - Calls **TVMaze** episode endpoint
-     - If no summary or failure, and show is **Jujutsu Kaisen S1**, calls Fandom pipeline:
-       - `fetch-fandom-episode` → raw `combined` text (Summary + Plot)
-       - `sanitize-episode-context` → `sanitized` spoiler-safe summary
-     - Result is cached in `localStorage` for 7 days.
-   - The sanitized recap is written into `watchSetup.context` (unless user overwrote it).
+**3. Episode Recap (`useEpisodeRecap.fetchRecap`)**
 
-4. **Chat**
-   - `useChat.sendMessage(question, watchSetup, style)`:
-     - Appends a `ChatMessage` for the user into `localStorage`-backed state.
-     - POSTs to `${VITE_SUPABASE_URL}/functions/v1/spoiler-shield-chat`.
-   - The edge function:
-     - Builds system prompt (SAFE_BASICS / AMBIGUOUS / SPOILER_RISK policy).
-     - Builds a user message summarizing:
-       - Confirmed progress (title, season, episode, timestamp if any)
-       - Episode `context` (sanitized summary)
-       - Instructions on how to treat SAFE_BASICS vs. AMBIGUOUS vs. SPOILER_RISK.
-     - Calls Lovable AI gateway with **streaming** enabled.
-     - Returns the streamed body as `text/event-stream`.
-   - Client:
-     - Uses `ReadableStreamDefaultReader` to read chunks.
-     - Parses `data: { ... }` SSE lines.
-     - Gradually builds `assistantContent` and updates `messages` state.
-     - Carefully **preserves user message** and assistant message in state, even on errors.
-   - **Audit pass**:
-     - Currently **disabled** in `useChat.ts` for MVP (see TODO).
-     - When re-enabled, audit will run after streaming completes and can mark answers as `audited` (UI can show “Safety edit applied”).
+Four-tier fallback chain, each tier cached 7 days in `localStorage`:
+
+| Tier | Key pattern | Source |
+|------|-------------|--------|
+| 1 | `tvmaze_episode_{showId}_s{s}_e{e}` | TVMaze API → sanitize-episode-context |
+| 2 | `fandom_episode_{slug}_s{s}_e{e}` | fetch-fandom-episode → sanitize-episode-context (JJK S1 only) |
+| 3 | `websearch_episode_{slug}_s{s}_e{e}` | fetch-web-episode-recap → sanitize-episode-context |
+| 4 | *(none)* | No recap — chat still works using model's general knowledge |
+
+All tiers that produce a recap run it through `sanitize-episode-context` to strip forward spoilers before storing.
+
+**4. Chat (`useChat`)**
+- `sendMessage(question, watchSetup, style)` POSTs to `spoiler-shield-chat`.
+- Edge function builds a `contextBlock` — if context exists, sends it as episode reference; if empty, instructs model to use general show knowledge conservatively.
+- Streams back SSE; client reads with `ReadableStreamDefaultReader`, parses `data:` lines, updates messages incrementally.
+- On first message sent, `syncMessageCount` is called → session gets `confirmed: true` → appears in history drawer.
 
 ---
 
 ## 3. Spoiler Policy & Answering Strategy
 
-### 3.1 Constraints (MVP)
+### 3.1 Constraints
 
 - **No future spoilers** – the model must not reveal or hint at:
-  - Future events
-  - Hidden identities
-  - Deaths, twists, betrayals, etc.
+  - Future events, deaths, twists, betrayals
+  - Hidden identities not yet revealed
 - **Only use information up to the confirmed episode**.
-- For MVP, **no aggregation across many episodes**:
-  - We only use:
-    - A short show-level shaping of intent (in prompt), and
-    - The **current episode** summary, optionally the previous episode if needed later.
+- Context (episode recap) is a helpful reference but not required — `SAFE_BASICS` questions can be answered from general show knowledge.
 
 ### 3.2 Question Classification (in `spoiler-shield-chat` SYSTEM_PROMPT)
 
-The system prompt enforces 3 categories:
+- **SAFE_BASICS** (Answer immediately, 1–3 sentences) — DEFAULT when in doubt
+  - Character names, basic abilities, roles, early relationships
+  - "What is cursed energy?", "Who is Gojo?" → SAFE_BASICS
+  - Uses general show knowledge up to confirmed episode
 
-- **SAFE_BASICS** (Answer immediately)
-  - Already-introduced character names
-  - Basic definitions (e.g. “cursed energy”, “cursed spirits”)
-  - Simple “what happened so far in S1E4?” type recaps
-  - Basic relationships established early
-  - Rules:
-    - Answer in **1–3 sentences**
-    - Use general show knowledge **up to** the user’s confirmed progress
-    - No future hints / foreshadowing
-    - Casual, friendly tone
+- **AMBIGUOUS** (Ask one clarifying question)
+  - Vague scene references: "why did he do that?", "what just happened?"
 
-- **AMBIGUOUS** (Ask for clarification)
-  - Vague scene questions: “why did he do that?”, “what just happened?”
-  - Rules:
-    - Ask **one** short clarifying question
-    - Don’t refuse
-    - Don’t hint at future content
-
-- **SPOILER_RISK** (Refuse playfully)
-  - Questions about:
-    - Traitors, hidden identities
-    - Future events, abilities, deaths
-    - Backstories not yet revealed
-  - Rules:
-    - Refuse in a **playful, human way** (e.g. “I can’t tell you that without spoiling you 😭”)
-    - No hints, no “you’ll see later”
+- **SPOILER_RISK** (Refuse playfully, no hints)
+  - Questions whose answer requires revealing future deaths, twists, secret identities
+  - NO-LEAK RULE: refusal must be generic — never reveal the nature of the secret
 
 ### 3.3 Episode Context Sanitization
 
-- `fetch-fandom-episode`:
-  - Constructs likely Fandom URLs for Jujutsu Kaisen S1 (Episode\_4, Episode\_04, etc.)
-  - Fetches HTML and uses **DOMParser** to extract:
-    - `<h2>Summary</h2>` + content
-    - `<h2>Plot</h2>` + content
-  - Combines these into a `combined` text string.
-
-- `sanitize-episode-context`:
-  - Uses an LLM prompt to **strip**:
-    - Hindsight commentary
-    - References to future episodes or manga
-    - Meta commentary not needed for the episode.
-  - Returns `sanitized`, which the client uses as `watchSetup.context`.
+`sanitize-episode-context` is called on **all** recap sources (TVMaze, Fandom, web search) before the text is stored or used. It strips:
+- Hindsight commentary
+- References to future episodes or manga
+- Phrases like "later revealed", "foreshadows", "will become", "eventually"
 
 ---
 
 ## 4. UI / UX Overview (Side Panel)
 
-### 4.1 Steps & Navigation
+### 4.1 Chat-First Flow
 
-Side panel flow: detect show (Detected card or manual search) → confirm or change → select season/episode and optionally timestamp → episode recap loads (TVMaze or Fandom fallback) → confirm progress → edit context if needed → Q&A with scrollable history, style pills, and persistent header links (Change show, Edit progress, Edit context). For exact UI behavior and step logic, see `src/pages/Index.tsx` (side panel branch) and the components it uses (e.g. `ShowSearch`, `EpisodeSelector`, `ProgressConfirmation`, `ChatPanel`).
+The panel opens directly to chat — no wizard, no confirmation steps.
 
-### 4.2 Web App (Non-side-panel) Mode
+- **detecting / resolving**: spinner while show info is being fetched and TVMaze lookup runs
+- **no-show**: shown on home pages / non-show pages — "Pick something to watch 🍿"
+- **needs-episode**: show found but no episode detected — inline `EpisodePicker` shown
+- **ready**: chat is live; `QAStep` renders full conversation + input
+- **error**: error state with re-detect suggestion
 
-- `Index.tsx` has a separate branch for the full web app layout:
-  - `WatchSetupPanel` on left, `ChatPanel` on right.
-  - Same hooks (`useChat`, `useEpisodeRecap`), but simpler flow.
-  - This is less of a focus for MVP; side panel is primary.
+Header always shows `StatusBadge` (show/episode/context info + popover for manual override) and history icon.
+
+### 4.2 Session History
+
+Sessions are stored per show+episode in `localStorage` (`spoilershield-sessions`). Each session's messages live under `spoilershield-msgs-{sessionId}`. Max 10 sessions; oldest evicted on overflow.
+
+- Sessions with `confirmed: false` (auto-created, no messages sent) are hidden from the history drawer.
+- `HistorySheet` (left-side drawer) lists confirmed sessions; tap to switch.
+- When episode changes on the same show, a toast offers to import the previous episode's chat.
+
+### 4.3 Status Bar (`ChatStatusBar`)
+
+Shown between conversation and input:
+- **Loading**: amber spinner — "Loading episode recap — Shield not ready yet"
+- **No recap**: shield icon — "No episode recap — answering from general show knowledge"
+- **Ready**: shield icon — "Shielding based on S{x} E{y} knowledge"
+
+### 4.4 Web App (Non-side-panel) Mode
+
+`Index.tsx` has a separate branch for the full web app layout (`WatchSetupPanel` + `ChatPanel`). Same hooks, simpler flow. Not the primary focus.
 
 ---
 
@@ -204,74 +173,55 @@ Side panel flow: detect show (Detected card or manual search) → confirm or cha
 
 ### 5.1 Environment Variables
 
-- `.env.example` (template):
-  - `VITE_SUPABASE_URL=https://your-project-ref.supabase.co`
-  - `VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`
-  - `GOOGLE_AI_API_KEY` is **not** in `.env.local`; it's set as a Supabase secret.
+- `.env.local` (not committed):
+  - `VITE_SUPABASE_URL=https://dbileyqtnisyqzgwwive.supabase.co`
+  - `VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key`
+- Supabase secret (set via CLI, never in repo):
+  - `GOOGLE_AI_API_KEY` — used by all edge functions
 
 ### 5.2 Supabase Config
 
-- `supabase/config.toml`:
-  - **No hardcoded project_id** – must be set via `supabase link`.
-  - Functions configured:
-    - `spoiler-shield-chat`
-    - `audit-answer`
-    - `fetch-fandom-episode`
-    - `log-spoiler-report`
-    - `sanitize-episode-context`
-  - All `verify_jwt = false` for now (public functions called from client).
+- Project ref: `dbileyqtnisyqzgwwive`
+- All functions have `verify_jwt = false`
+- Functions: `spoiler-shield-chat`, `fetch-web-episode-recap`, `fetch-fandom-episode`, `sanitize-episode-context`, `audit-answer`, `log-spoiler-report`
 
-### 5.3 Deployment Checklist (High Level)
+### 5.3 Deployment Checklist
 
-1. Create `.env.local` from `.env.example` and fill Supabase URL + anon key.
-2. `supabase login`
-3. `supabase link --project-ref YOUR_PROJECT_REF`
-4. `supabase secrets set LOVABLE_API_KEY=your-lovable-key`
-5. Deploy functions:
-   ```bash
-   supabase functions deploy spoiler-shield-chat
-   supabase functions deploy fetch-fandom-episode
-   supabase functions deploy sanitize-episode-context
-   supabase functions deploy log-spoiler-report
-   supabase functions deploy audit-answer
-   ```
-6. In the browser:
-   - Confirm that network requests to `/functions/v1/spoiler-shield-chat` go to **your** project URL (not the old one).
+```bash
+supabase login
+supabase link --project-ref dbileyqtnisyqzgwwive
+supabase secrets list   # confirm GOOGLE_AI_API_KEY is set
+
+# Deploy all functions
+supabase functions deploy spoiler-shield-chat
+supabase functions deploy fetch-web-episode-recap
+supabase functions deploy fetch-fandom-episode
+supabase functions deploy sanitize-episode-context
+supabase functions deploy audit-answer
+supabase functions deploy log-spoiler-report
+```
 
 ---
 
 ## 6. Known Limitations & Future State
 
-### 6.0 Current State & Open Bugs
+### 6.0 Current State
 
-- **Chat 500 bug** — **Fixed 2026-02-17.** Root cause: `LOVABLE_API_KEY` was a Google Gemini key (wrong value), and Lovable's AI Gateway is an internal shared key not accessible outside their hosted platform. All LLM calls now use **Google Generative AI directly** (`GOOGLE_AI_API_KEY` Supabase secret, `gemini-2.0-flash` via OpenAI-compatible endpoint). `useChat.ts` also now parses server error bodies for clearer error messages.
-- **Audit pass** remains disabled in `useChat.ts`; re-enable after chat is confirmed working end-to-end.
+All previously known bugs are resolved. The product works end-to-end for any show on Crunchyroll or Netflix.
 
-### 6.1 Current Limitations (MVP)
+- `audit-answer` is deployed but **not wired into the client** — re-enable after confirming chat stability. Needs the empty-context guard removed (same fix applied to chat in 2026-02-23 session) before it can handle shows without recaps.
 
-- **Show coverage**:
-  - Fandom-based recap is **only** implemented for **Jujutsu Kaisen S1**.
-  - Other shows rely on TVMaze summaries; if missing, user must paste context.
-- **Spoiler audit**:
-  - The second-pass `audit-answer` function is implemented but **not yet wired into `useChat`** (currently commented/disabled to avoid CORS/deployment issues).
-- **Detection**:
-  - Detection is best-effort and may fail on:
-    - Unusual Crunchyroll layouts
-    - Netflix changes
-  - The system relies on DOM patterns that may drift over time.
-- **State reset edge cases**:
-  - Many guards are in place, but step navigation + detection can still create edge cases if:
-    - Detected show changes while user is mid-flow
-    - LocalStorage is partially corrupted
-- **Chat features**:
-  - No UI yet for:
-    - Clearing all chat history (web app has `clearChat`, but side-panel UI for this is not front-and-center).
-  - Searching/filtering chat history.
-  - “Felt spoilery” button exists conceptually but logging is basic (`log-spoiler-report` just logs).
+### 6.1 Current Limitations
+
+- **Web search recap quality**: Gemini Search Grounding works well for popular shows but may return thin or inaccurate recaps for obscure titles. The sanitize pass provides a safety net but can't fix fundamentally wrong content.
+- **Fandom coverage**: Still hardcoded to Jujutsu Kaisen S1. Web search covers the gap for other shows.
+- **Detection drift**: Content.js relies on DOM patterns that may change with Crunchyroll/Netflix updates.
+- **`needs-episode` with no showId**: If TVMaze lookup fails entirely, `EpisodePicker` can't render (requires a showId). Fallback: show manual season/episode text inputs. Low priority.
+- **Audit pass**: `audit-answer` function exists and is deployed but is not called from `useChat.ts`. Re-enabling it requires: (1) removing its empty-context 400 guard, (2) wiring it after streaming completes.
 
 ### 6.2 Future Vision
 
-Future vision: See **ROADMAP.md** for desired future state and feature ideas.
+See **ROADMAP.md** for desired future state and feature ideas.
 
 ---
 
@@ -279,84 +229,56 @@ Future vision: See **ROADMAP.md** for desired future state and feature ideas.
 
 > Keep this ordered **newest first**. Each entry should be 1–3 bullet points.
 
+### 2026‑02‑23
+
+- **Detection fix:** `background.js` now programmatically injects `content.js` via `chrome.scripting.executeScript` when a tab is already open after extension reload. `tabs.onUpdated` listener also re-injects on SPA navigations. Fixed TDZ crash in `debugHeartbeat` IIFE (`state.platform` accessed before declaration).
+- **Universal context pipeline:** TVMaze summaries now piped through `sanitize-episode-context` (same as Fandom). New `fetch-web-episode-recap` edge function uses Gemini Search Grounding as a third-tier fallback for any show not covered by TVMaze or Fandom. Chat no longer blocked when context is empty — model answers from general show knowledge with the episode boundary enforced in the prompt.
+- **Confirmed-session pattern:** Sessions created by auto-detection have `confirmed: false` and are hidden from history. Flipped to `true` on first message via `syncMessageCount`. Prevents empty ghost sessions from accumulating.
+- **UI polish:** No-show state shows a friendly "Pick something to watch 🍿" prompt. No-recap status bar is now informational (shield icon, muted text) instead of an amber warning.
+
+### 2026‑02‑21
+
+- **Chat-first UX rewrite:** Replaced 4-step wizard with session-oriented chat panel. Sessions stored per show+episode in `localStorage`. New hooks: `useSessionStore` (session CRUD, migration from legacy key), `useInitFlow` (init state machine: detecting → resolving → ready / needs-episode / no-show / error). New components: `StatusBadge`, `HistorySheet`, `ChatStatusBar`, `EpisodePicker`.
+- **Auto-episode detection:** Toast shown when episode changes on same show, offering to import previous chat. Session switching via `HistorySheet` drawer.
+- **Model update:** Switched from `gemini-2.0-flash` (OpenAI-compat endpoint) to `gemini-3-flash-preview` (native Gemini API) for chat + audit functions.
+
 ### 2026‑02‑17
 
-- **Chat 500 fix:** Switched all LLM calls from Lovable AI Gateway (`LOVABLE_API_KEY`) to Google Generative AI OpenAI-compatible endpoint (`GOOGLE_AI_API_KEY`, `gemini-2.0-flash`). Lovable's gateway key is internal/shared and not user-accessible outside their hosted platform.
-- **Error handling:** `useChat.ts` now parses 500 response bodies to surface real server error messages instead of generic "Failed to get response."
-- **Docs/housekeeping:** Renamed `AGENTS.md` → `CLAUDE.md`; fixed leading space in `VITE_SUPABASE_URL` in `.env.local`; updated `.env.example` to reference `GOOGLE_AI_API_KEY`.
+- **Chat 500 fix:** Switched all LLM calls from Lovable AI Gateway to Google Generative AI native API (`GOOGLE_AI_API_KEY`, `gemini-2.0-flash`). Error handling in `useChat.ts` now parses server error bodies for clearer messages.
 
 ### 2026‑02‑15
 
-- **Docs restructure:** Restructured AGENTS.md and PROJECT_CONTEXT.md to reduce overlap; added Rules & Constraints and Smoke Test Checklist to AGENTS.md; moved future vision to ROADMAP.md; trimmed Section 4.1 and removed Section 8 (deferred to AGENTS.md).
+- **Docs restructure:** Restructured AGENTS.md and PROJECT_CONTEXT.md; added Rules & Constraints and Smoke Test Checklist to CLAUDE.md; moved future vision to ROADMAP.md.
 
 ### 2026‑02‑12
 
-- **Lovable revert:** All Edge Functions use **LOVABLE_API_KEY** and Lovable AI Gateway again (reverted from direct Google Gemini API after 404/model-not-found issues).
-- **Chat 500 bug open:** Side panel shows "Failed to get response" when asking a question; Supabase returns 500. Debug payload added in `spoiler-shield-chat` (returns `debug` in error responses). Resolution pending (verify secret, Lovable key, logs).
-- **Agent handoff:** Added **AGENTS.md** for agent handoffs; updated PROJECT_CONTEXT with current state and open bugs.
+- **Lovable revert:** All Edge Functions reverted to `LOVABLE_API_KEY` + Lovable AI Gateway (later superseded).
+- **Agent handoff:** Added AGENTS.md (later renamed CLAUDE.md).
 
 ### 2026‑02‑09
 
-- **System prompt refactor** for `spoiler-shield-chat`:
-  - Implemented SAFE_BASICS / AMBIGUOUS / SPOILER_RISK classification.
-  - Allowed SAFE_BASICS to use general show knowledge up to the user’s confirmed progress.
-  - Added few-shot examples and friendlier, non-compliance tone.
-- **Supabase migration scaffolding**:
-  - Added `.env.example`, `MIGRATION_GUIDE.md`, `MIGRATION_SUMMARY.md`.
-  - Removed hardcoded `project_id` from `supabase/config.toml`.
-- **UseChat stability**:
-  - Ensured chat messages (user + assistant) are preserved during streaming and after completion.
-  - Disabled audit pass temporarily to avoid CORS/issues until deployed.
+- **System prompt refactor** for `spoiler-shield-chat`: SAFE_BASICS / AMBIGUOUS / SPOILER_RISK classification; general show knowledge allowed for SAFE_BASICS; friendlier tone.
+- **Supabase migration scaffolding:** `.env.example`, `MIGRATION_GUIDE.md`; removed hardcoded `project_id`.
+- **`useChat` stability:** Messages preserved through streaming and error paths; audit pass temporarily disabled.
 
-### 2026‑01‑xx (approx.) – Side Panel UX & Detection
+### 2026‑01‑xx – Side Panel UX & Detection
 
-- **Auto-detection of show info**:
-  - Implemented DOM-based detection for Crunchyroll (and partial Netflix).
-  - Store detected info in `chrome.storage.local` and propagate to iframe.
-  - Added re-detect button + “Detecting…” loading state.
-- **“Detected show” card**:
-  - Shows best-effort title, platform, `SxEy` if known.
-  - Confirm: accepts detected show and progresses to episode selection.
-  - Change: dismisses card and focuses manual search.
-- **Step navigation & Q&A history**:
-  - Back navigation between **show → progress → context → qa**.
-  - Persistent links in header for **Change show / Edit progress / Edit context** on Q&A step.
-  - Scrollable Q&A conversation history with auto-scroll to newest message.
-- **Bug fixes**:
-  - Fixed blank navy screen after navigation and after “Confirm progress.”
-  - Fixed `qaHistoryRef is not defined` crash by adding proper `useRef` and always rendering history container.
-  - Added fallback error cards when state/step mismatches occur instead of going blank.
+- Auto-detection from DOM + `chrome.storage`; re-detect button; "Detecting…" state.
+- Step navigation (show → progress → context → qa); persistent header links; scrollable Q&A history.
+- Fixed blank screen, `qaHistoryRef` crash, fallback error cards.
 
 ### 2026‑01‑xx – Episode Recap & Fandom Integration
 
-- **`useEpisodeRecap` hook**:
-  - Fetches recap from TVMaze; strips HTML.
-  - Fandom fallback for Jujutsu Kaisen S1 via Supabase functions.
-  - Caches sanitized recaps in `localStorage` (7 days).
-- **Supabase functions added**:
-  - `fetch-fandom-episode` – Fandom HTML fetch + DOM parse for Summary + Plot.
-  - `sanitize-episode-context` – LLM sanitization pass to remove future spoilers & meta content.
-  - `audit-answer` – second-pass spoiler audit endpoint (currently disabled on client).
-  - `log-spoiler-report` – logs spoiler reports.
+- `useEpisodeRecap`: TVMaze fetch + HTML strip; Fandom fallback for JJK S1; 7-day localStorage cache.
+- Edge functions added: `fetch-fandom-episode`, `sanitize-episode-context`, `audit-answer`, `log-spoiler-report`.
 
 ### 2026‑01‑xx – Performance & Stability
 
-- **Initial performance bug**:
-  - Side panel froze due to repeated effects and repeated fetches (infinite-ish loops).
-  - Fixes:
-    - Memoized callbacks (`useCallback`).
-    - Removed non-primitive dependencies from `useEffect`.
-    - Introduced `useRef`-based guards like `lastRecapKey`, `hasAutoSearched`.
-    - Avoided unnecessary state updates when values didn’t change.
-- **Message disappearance bug**:
-  - Messages would initially appear, then vanish after a few seconds.
-  - Fix:
-    - Track `userMessageId` and enforce that the user message is always present in `messages` during all state transitions.
-    - Ensure assistant message is preserved on both success and error paths.
+- Fixed infinite-loop freeze: memoized callbacks, `useRef` guards (`lastRecapKey`, `hasAutoSearched`).
+- Fixed message disappearance: `userMessageId` tracking through all state transitions.
 
 ---
 
 ## 8. How to Work on This Project
 
-How to work on this project: See **CLAUDE.md** for onboarding, local setup, rules, smoke test checklist, and handoff procedures.
-
+See **CLAUDE.md** for onboarding, local setup, rules, smoke test checklist, and handoff procedures.
