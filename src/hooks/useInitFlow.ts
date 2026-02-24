@@ -195,11 +195,9 @@ export function useInitFlow(sessionStore: ReturnType<typeof useSessionStore>) {
 
     window.addEventListener('message', onMessage);
 
-    // Request show info from extension — always send so episode changes are picked up
+    // Request show info from extension — sidepanel.js listens on the same window
     const requestShowInfo = () => {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'SPOILERSHIELD_REQUEST_SHOW_INFO' }, '*');
-      }
+      window.postMessage({ type: 'SPOILERSHIELD_REQUEST_SHOW_INFO' }, '*');
     };
 
     requestShowInfo();
@@ -263,16 +261,14 @@ export function useInitFlow(sessionStore: ReturnType<typeof useSessionStore>) {
     setPhase('detecting');
     hasReceivedShowInfo.current = false;
 
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'SPOILERSHIELD_REQUEST_REDETECT' }, '*');
-      const req = () => {
-        window.parent.postMessage({ type: 'SPOILERSHIELD_REQUEST_SHOW_INFO' }, '*');
-      };
-      req();
-      setTimeout(req, 500);
-      setTimeout(req, 1000);
-      setTimeout(req, 2000);
-    }
+    window.postMessage({ type: 'SPOILERSHIELD_REQUEST_REDETECT' }, '*');
+    const req = () => {
+      window.postMessage({ type: 'SPOILERSHIELD_REQUEST_SHOW_INFO' }, '*');
+    };
+    req();
+    setTimeout(req, 500);
+    setTimeout(req, 1000);
+    setTimeout(req, 2000);
 
     if (detectionTimerRef.current) clearTimeout(detectionTimerRef.current);
     detectionTimerRef.current = setTimeout(() => {
