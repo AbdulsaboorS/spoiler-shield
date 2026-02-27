@@ -5,6 +5,10 @@ const MATCH_PATTERNS = [
   /^https?:\/\/(www\.)?netflix\.com\//,
 ];
 
+// Tell Chrome to open/close the side panel automatically when the action icon
+// is clicked — this is more reliable than calling chrome.sidePanel.open() manually.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+
 async function ensureContentScript(tabId, url) {
   if (!url || !MATCH_PATTERNS.some(p => p.test(url))) return;
   try {
@@ -21,25 +25,9 @@ async function ensureContentScript(tabId, url) {
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
-  const tabId = tab?.id;
-  if (!tabId) return;
-
-  try {
-    if (chrome.sidePanel?.setOptions) {
-      await chrome.sidePanel.setOptions({
-        tabId,
-        path: "sidepanel.html",
-        enabled: true,
-      });
-    }
-    if (chrome.sidePanel?.open) {
-      await chrome.sidePanel.open({ tabId });
-    }
-  } catch {
-    // ignore
-  }
-
-  await ensureContentScript(tabId, tab.url);
+  // Side panel opens automatically via setPanelBehavior above.
+  // Just ensure content script is injected so detection works immediately.
+  await ensureContentScript(tab?.id, tab?.url);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
