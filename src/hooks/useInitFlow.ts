@@ -59,6 +59,14 @@ export function useInitFlow(sessionStore: ReturnType<typeof useSessionStore>) {
       const episode = showInfo.episodeInfo?.episode ?? '';
       const hasEpisode = Boolean(season && episode);
 
+      // If TVMaze didn't find the show AND there's no episode info, this is almost
+      // certainly a false positive (e.g. a Crunchyroll browse/home page). Bail out
+      // to no-show rather than prompting the user to enter an episode for a non-show.
+      if (!showId && !hasEpisode) {
+        setPhase('no-show');
+        return;
+      }
+
       const sessionId = sessionStoreRef.current.loadOrCreateSession(
         resolvedTitle,
         showId,
